@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<worksheet version="3.0.3" xmlns="http://schemas.mathsoft.com/worksheet30"
+           xmlns:ml="http://schemas.mathsoft.com/math30">
+  <settings>
+    <presentation>
+      <textRendering>
+        <textStyles>
+          <textStyle name="Normal"><blockAttr/><inlineAttr font-family="Arial"/></textStyle>
+        </textStyles>
+      </textRendering>
+      <mathRendering>
+        <operators/>
+        <mathStyles>
+          <mathStyle name="Variables"/><mathStyle name="Constants"/>
+          <mathStyle name="User 1"/><mathStyle name="User 2"/>
+          <mathStyle name="User 3"/><mathStyle name="User 4"/>
+          <mathStyle name="User 5"/><mathStyle name="User 6"/>
+          <mathStyle name="User 7"/><mathStyle name="Math Text Font"/>
+        </mathStyles>
+        <dimensionNames/><symbolics/><results/>
+      </mathRendering>
+      <colorModel/>
+    </presentation>
+    <editor><ruler ruler-unit="cm"/><grid/></editor>
+    <fileFormat/>
+    <miscellaneous><handbook/></miscellaneous>
+  </settings>
+  <regions>
+    <region region-id="1" left="12" top="10" align-y="16" width="410" height="15">
+      <text><p style="Normal">Измените нагрузку F, чтобы пересчитать давление под опорой.</p></text>
+    </region>
+    <region region-id="2" left="12" top="30" align-y="36" width="105" height="15">
+      <math><ml:define><ml:id>F</ml:id>
+        <ml:apply><ml:mult/><ml:real>40</ml:real><ml:id>kN</ml:id></ml:apply>
+      </ml:define></math>
+    </region>
+    <region region-id="3" left="150" top="30" align-y="36" width="105" height="15">
+      <math><ml:define><ml:id>b</ml:id>
+        <ml:apply><ml:mult/><ml:real>200</ml:real><ml:id>mm</ml:id></ml:apply>
+      </ml:define></math>
+    </region>
+    <region region-id="4" left="12" top="50" align-y="56" width="105" height="15">
+      <math><ml:define><ml:id>S</ml:id>
+        <ml:apply><ml:pow/><ml:id>b</ml:id><ml:real>2</ml:real></ml:apply>
+      </ml:define></math>
+    </region>
+    <region region-id="5" left="150" top="50" align-y="56" width="105" height="15">
+      <math><ml:define><ml:id>p</ml:id>
+        <ml:apply><ml:div/><ml:id>F</ml:id><ml:id>S</ml:id></ml:apply>
+      </ml:define></math>
+    </region>
+    <region region-id="6" left="12" top="70" align-y="76" width="105" height="15">
+      <math><ml:eval><ml:id>p</ml:id><ml:unitOverride><ml:id>MPa</ml:id></ml:unitOverride></ml:eval></math>
+    </region>
+    <region region-id="7" left="12" top="90" align-y="96" width="410" height="15">
+      <text><p style="Normal">Независимая ветка. Площадь и периметр зависят только от ширины.</p></text>
+    </region>
+    <region region-id="8" left="12" top="110" align-y="116" width="105" height="15">
+      <math><ml:define><ml:id>P</ml:id>
+        <ml:apply><ml:mult/><ml:real>4</ml:real><ml:id>b</ml:id></ml:apply>
+      </ml:define></math>
+    </region>
+    <region region-id="9" left="12" top="130" align-y="136" width="105" height="15">
+      <math><ml:eval><ml:id>P</ml:id><ml:unitOverride><ml:id>mm</ml:id></ml:unitOverride></ml:eval></math>
+    </region>
+  </regions>
+</worksheet>

@@ -1,0 +1,21 @@
+[package]
+name = "list-rs"
+version = "0.5.0"
+edition = "2021"
+default-run = "list-rs"
+
+[features]
+default = []
+desktop = ["dep:eframe", "dep:rfd", "roxmltree/positions"]
+
+[[bin]]
+name = "list-desktop"
+path = "src/desktop.rs"
+required-features = ["desktop"]
+
+[dependencies]
+roxmltree = { version = "0.21.1", default-features = false, features = ["std"] }
+num-complex = "0.4.6"
+flate2 = "1.1"
+eframe = { version = "0.33", optional = true, default-features = false, features = ["default_fonts", "glow", "accesskit"] }
+rfd = { version = "0.15", optional = true, default-features = false }

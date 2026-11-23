@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>w на комплексной плоскости</title>
+<style>
+:root{color-scheme:light;font:16px system-ui,sans-serif;color:#132433;background:#eef2f5}
+body{margin:0;padding:clamp(16px,5vw,60px)}
+main{max-width:1040px;margin:auto;background:white;padding:clamp(12px,3vw,32px);border:1px solid #d2dde5;border-radius:16px}
+h1{margin:0 0 16px;font-size:clamp(20px,4vw,32px);letter-spacing:-.025em}
+.controls{display:flex;flex-wrap:wrap;gap:14px 24px;margin-bottom:12px}
+input{accent-color:#006d79}
+canvas{display:block;width:100%;height:clamp(300px,58vh,620px);border:1px solid #d2dde5;border-radius:10px;box-sizing:border-box}
+output{display:block;min-height:1.5em;padding-top:10px;color:#3f5567;font-variant-numeric:tabular-nums}
+</style>
+<main>
+  <h1>w на комплексной плоскости</h1>
+  <div class="controls">
+    <label><input id="line" type="checkbox"> Соединить точки</label>
+    <label><input id="equal" type="checkbox"> Одинаковый масштаб осей</label>
+  </div>
+  <canvas id="graph" data-x="Re" data-y="Im" aria-label="Координатный график"></canvas>
+  <output id="point" aria-live="polite"></output>
+</main>
+<script>
+const data = [[1.0165756680146147e0,8.974647124869278e-2],[9.735158553860681e-1,3.061819674848352e-1],[8.849355233448297e-1,5.083007352182022e-1],[7.549765897671799e-1,6.866519255084572e-1],[5.897157899482292e-1,8.328960349207389e-1],[3.968805352133245e-1,9.401948514375824e-1],[1.8548758775287824e-1,1.0035312016527294e0],[-3.4578553156245855e-2,1.0199435482234167e0],[-2.530278393510854e-1,9.886644680650123e-1],[-4.5964582499811335e-1,9.111565362015225e-1],[-6.44771282727872e-1,7.910439373830048e-1],[-7.997479518890858e-1,6.339430032346481e-1],[-9.173292956759738e-1,4.471995988320812e-1],[-9.920173411353378e-1,2.3954563821478214e-1],[-1.0203197582712986e0,2.069078979041508e-2],[-1.0009131575144563e0,-1.9913153696839062e-1],[-9.34704969947313e-1,-4.0964269437736256e-1],[-8.24791016835393e-1,-6.00999414682403e-1],[-6.763107524656252e-1,-7.642540703197676e-1],[-4.962069489759784e-1,-8.917730550363715e-1],[-2.929010600466279e-1,-9.775937228340382e-1],[-7.589944308564416e-2,-1.01770319466937e0],[1.4465114747785127e-1,-1.0102259962178233e0],[3.584380111534867e-1,-9.555117529686831e-1],[5.554647118028223e-1,-8.561188421257647e-1],[7.265184998829434e-1,-7.166947657327979e-1],[8.636010903758552e-1,-5.437588386431862e-1],[9.603026537064651e-1,-3.453973526031627e-1],[1.012101532249503e0,-1.3088547023700006e-1]];
+const sameScale = true;
+const graph = document.getElementById("graph");
+const status = document.getElementById("point");
+const line = document.getElementById("line");
+const equal = document.getElementById("equal");
+const ctx = graph.getContext("2d");
+const format = new Intl.NumberFormat("ru", { maximumSignificantDigits: 6 });
+const fallback = `${data.length} точек`;
+const points = [];
+line.checked = !sameScale;
+equal.checked = sameScale;
+status.textContent = fallback;
+
+function bounds(axis) {
+  let low = Infinity, high = -Infinity;
+  for (const pair of data) {
+    low = Math.min(low, pair[axis]);
+    high = Math.max(high, pair[axis]);
+  }
+  const offset = (high / 2 - low / 2) * .16 || Math.max(Math.abs(low) * .08, 1);
+  const min = low - offset, max = high + offset;
+  return [Number.isFinite(min) ? min : low, Number.isFinite(max) ? max : high];
+}
+const rawX = bounds(0);
+const rawY = bounds(1);
+
+function draw() {
+  let [xmin, xmax] = rawX;
+  let [ymin, ymax] = rawY;
+  const ratio = window.devicePixelRatio || 1;
+  const w = graph.clientWidth, h = graph.clientHeight;
+  graph.width = w * ratio;
+  graph.height = h * ratio;
+  ctx.scale(ratio, ratio);
+  const left = 66, right = w - 24, top = 28, bottom = h - 52;
+  if (right <= left || bottom <= top) return;
+  let sx = (xmax / 2 - xmin / 2) / (right - left);
+  let sy = (ymax / 2 - ymin / 2) / (bottom - top);
+  if (equal.checked) sx = sy = Math.max(sx, sy);
+  const xcenter = xmin / 2 + xmax / 2, ycenter = ymin / 2 + ymax / 2;
+  const xpos = x => (left + right) / 2 + (x / 2 - xcenter / 2) / sx;
+  const ypos = y => (top + bottom) / 2 - (y / 2 - ycenter / 2) / sy;
+  const stroke = (x1,y1,x2,y2) => { ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); };
+  ctx.font = "12px system-ui";
+  ctx.fillStyle = "#345064";
+  for (let i = 0; i <= 5; i++) {
+    const xx = left + (right - left) * i / 5;
+    const yy = bottom - (bottom - top) * i / 5;
+    ctx.strokeStyle = "#dce5eb";
+    stroke(xx,top,xx,bottom);
+    stroke(left,yy,right,yy);
+    ctx.textAlign = "center";
+    ctx.fillText(format.format(xcenter + (xx - (left + right) / 2) * sx * 2), xx, bottom + 18, 78);
+    ctx.textAlign = "right";
+    ctx.fillText(format.format(ycenter + ((top + bottom) / 2 - yy) * sy * 2), left - 8, yy + 4, 56);
+  }
+  ctx.strokeStyle = "#8296a4";
+  if (xpos(0) >= left && xpos(0) <= right) stroke(xpos(0),top,xpos(0),bottom);
+  if (ypos(0) >= top && ypos(0) <= bottom) stroke(left,ypos(0),right,ypos(0));
+  ctx.fillText(graph.dataset.x, right, h - 12, right - left);
+  ctx.textAlign = "left";
+  ctx.fillText(graph.dataset.y, 10, 16, right - left);
+  points.length = 0;
+  for (const [x,y] of data) points.push([xpos(x),ypos(y)]);
+  ctx.strokeStyle = ctx.fillStyle = "#006d79";
+  if (line.checked && points.length > 1) {
+    ctx.beginPath();
+    points.forEach(([x,y],i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
+    ctx.stroke();
+  }
+  if (!line.checked || points.length < 400) for (const [x,y] of points) {
+    ctx.beginPath(); ctx.arc(x,y,points.length > 400 ? 1 : 3.5,0,Math.PI*2); ctx.fill();
+  }
+}
+
+graph.addEventListener("pointermove", ({offsetX,offsetY}) => {
+  let nearest = -1, best = 13 ** 2;
+  points.forEach(([x,y], i) => {
+    const distance = (x-offsetX)**2 + (y-offsetY)**2;
+    if (distance < best) { best = distance; nearest = i; }
+  });
+  status.textContent = nearest < 0 ? fallback : `Точка ${nearest+1} · ${graph.dataset.x} = ${format.format(data[nearest][0])} · ${graph.dataset.y} = ${format.format(data[nearest][1])}`;
+});
+graph.addEventListener("pointerleave", () => status.textContent = fallback);
+line.addEventListener("change", draw);
+equal.addEventListener("change", draw);
+new ResizeObserver(draw).observe(graph);
+</script>
+</html>

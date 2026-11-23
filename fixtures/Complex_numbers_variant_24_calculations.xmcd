@@ -1,0 +1,1301 @@
+<?xml version='1.0' encoding='utf-8'?>
+<worksheet xmlns="http://schemas.mathsoft.com/worksheet30" xmlns:ml="http://schemas.mathsoft.com/math30" version="3.0.3">
+  <pointReleaseData />
+  <metadata>
+    <generator>Mathcad Professional 14.1</generator>
+    <userData>
+      <title />
+      <description />
+      <author />
+      <company />
+      <keywords />
+      <revisedBy />
+    </userData>
+    <identityInfo>
+      <revision>44</revision>
+      <documentID>BAD3EB7E-8483-4E7E-9822-AD8D833FB31B</documentID>
+      <versionID>2F89649B-2C93-42A1-93F8-13152E3B2855</versionID>
+      <parentVersionID>00000000-0000-0000-0000-000000000000</parentVersionID>
+      <branchID>00000000-0000-0000-0000-000000000000</branchID>
+    </identityInfo>
+  </metadata>
+  <settings>
+    <presentation>
+      <textRendering>
+        <textStyles>
+          <textStyle name="Normal">
+            <blockAttr margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit" />
+            <inlineAttr font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" line-through="false" vertical-align="baseline" />
+          </textStyle>
+          <textStyle name="Heading 1">
+            <blockAttr margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit" />
+            <inlineAttr font-family="Arial" font-charset="0" font-size="14" font-weight="bold" font-style="normal" underline="false" line-through="false" vertical-align="baseline" />
+          </textStyle>
+          <textStyle name="Heading 2">
+            <blockAttr margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit" />
+            <inlineAttr font-family="Arial" font-charset="0" font-size="12" font-weight="bold" font-style="italic" underline="false" line-through="false" vertical-align="baseline" />
+          </textStyle>
+          <textStyle name="Heading 3">
+            <blockAttr margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit" />
+            <inlineAttr font-family="Arial" font-charset="0" font-size="12" font-weight="normal" font-style="normal" underline="false" line-through="false" vertical-align="baseline" />
+          </textStyle>
+          <textStyle name="Paragraph">
+            <blockAttr margin-left="0" margin-right="0" text-indent="21" text-align="left" list-style-type="inherit" tabs="inherit" />
+            <inlineAttr font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" line-through="false" vertical-align="baseline" />
+          </textStyle>
+          <textStyle name="List">
+            <blockAttr margin-left="14.25" margin-right="0" text-indent="-14.25" text-align="left" list-style-type="inherit" tabs="inherit" />
+            <inlineAttr font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" line-through="false" vertical-align="baseline" />
+          </textStyle>
+          <textStyle name="Indent">
+            <blockAttr margin-left="108" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit" />
+            <inlineAttr font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" line-through="false" vertical-align="baseline" />
+          </textStyle>
+          <textStyle name="Title">
+            <blockAttr margin-left="0" margin-right="0" text-indent="inherit" text-align="center" list-style-type="inherit" tabs="inherit" />
+            <inlineAttr font-family="Times New Roman" font-charset="0" font-size="24" font-weight="bold" font-style="normal" underline="false" line-through="false" vertical-align="baseline" />
+          </textStyle>
+          <textStyle name="Subtitle" base-style="Title">
+            <blockAttr margin-left="0" margin-right="0" text-indent="inherit" text-align="center" list-style-type="inherit" tabs="inherit" />
+            <inlineAttr font-family="Times New Roman" font-charset="0" font-size="18" font-weight="normal" font-style="normal" underline="false" line-through="false" vertical-align="baseline" />
+          </textStyle>
+        </textStyles>
+      </textRendering>
+      <mathRendering equation-color="#000">
+        <operators multiplication="narrow-dot" derivative="derivative" literal-subscript="large" definition="colon-equal" global-definition="triple-equal" local-definition="left-arrow" equality="bold-equal" symbolic-evaluation="right-arrow" />
+        <mathStyles>
+          <mathStyle name="Variables" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" />
+          <mathStyle name="Constants" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" />
+          <mathStyle name="User 1" font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" />
+          <mathStyle name="User 2" font-family="Courier New" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" />
+          <mathStyle name="User 3" font-family="Arial" font-charset="0" font-size="10" font-weight="bold" font-style="normal" underline="false" />
+          <mathStyle name="User 4" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="italic" underline="false" />
+          <mathStyle name="User 5" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" />
+          <mathStyle name="User 6" font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" />
+          <mathStyle name="User 7" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" />
+          <mathStyle name="Math Text Font" font-family="Times New Roman" font-charset="0" font-size="14" font-weight="normal" font-style="normal" underline="false" />
+        </mathStyles>
+        <dimensionNames mass="mass" length="length" time="time" current="current" thermodynamic-temperature="temperature" luminous-intensity="luminosity" amount-of-substance="substance" display="false" />
+        <symbolics derivation-steps-style="vertical-insert" show-comments="false" evaluate-in-place="false" />
+        <results numeric-only="true">
+          <general precision="6" show-trailing-zeros="false" radix="dec" complex-threshold="10" zero-threshold="15" imaginary-value="i" exponential-threshold="3" />
+          <matrix display-style="auto" expand-nested-arrays="false" />
+          <unit format-units="true" simplify-units="true" fractional-unit-exponent="false" />
+        </results>
+      </mathRendering>
+      <pageModel show-page-frame="false" show-header-frame="false" show-footer-frame="false" header-footer-start-page="1" paper-code="9" orientation="portrait" print-single-page-width="false" page-width="595.276" page-height="841.89">
+        <margins left="40" right="40" top="40" bottom="40" />
+        <header use-full-page-width="false" />
+        <footer use-full-page-width="false" />
+      </pageModel>
+      <colorModel background-color="#fff" default-highlight-color="#ffff80" />
+      <language math="ru" UI="ru" />
+    </presentation>
+    <calculation>
+      <builtInVariables array-origin="0" convergence-tolerance="0.001" constraint-tolerance="0.001" random-seed="1" prn-precision="4" prn-col-width="8" />
+      <calculationBehavior automatic-recalculation="true" matrix-strict-singularity-check="false" optimize-expressions="false" exact-boolean="true" strings-use-origin="false" zero-over-zero="error">
+        <compatibility multiple-assignment="MC12" local-assignment="MC11" />
+      </calculationBehavior>
+      <units>
+        <currentUnitSystem name="si" customized="false" />
+      </units>
+    </calculation>
+    <editor view-annotations="false" view-regions="false">
+      <ruler is-visible="false" ruler-unit="in" />
+      <plotTemplate>
+        <polar item-idref="1" />
+        <xy item-idref="2" />
+      </plotTemplate>
+      <grid granularity-x="6" granularity-y="6" />
+    </editor>
+    <fileFormat image-type="image/png" image-quality="75" save-numeric-results="true" exclude-large-results="true" save-text-images="false" screen-dpi="96" />
+    <miscellaneous>
+      <handbook handbook-region-tag-ub="1836" can-delete-original-handbook-regions="true" can-delete-user-regions="true" can-print="true" can-copy="true" can-save="true" file-permission-mask="4294967295" />
+    </miscellaneous>
+  </settings>
+  <regions>
+    <region region-id="101" left="12.0" top="0.0" width="490" height="19" align-x="12.0" align-y="12.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Heading 1" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">КОМПЛЕКСНЫЕ ЧИСЛА</p>
+      </text>
+    </region>
+    <region region-id="102" left="12.0" top="27.0" width="490" height="19" align-x="12.0" align-y="39.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Расчётная работа • вариант 24</p>
+      </text>
+    </region>
+    <region region-id="103" left="12.0" top="65.0" width="490" height="19" align-x="12.0" align-y="77.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Heading 2" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">1. Геометрия и формы записи числа</p>
+      </text>
+    </region>
+    <region region-id="104" left="12.0" top="100.0" width="480" height="30" align-x="12.0" align-y="112.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">N</ml:id>
+          <ml:real>24</ml:real>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="105" left="150.0" top="100.0" width="480" height="30" align-x="150.0" align-y="112.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">a</ml:id>
+          <ml:real>-1.5</ml:real>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="106" left="300.0" top="100.0" width="480" height="30" align-x="300.0" align-y="112.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">b</ml:id>
+          <ml:real>1</ml:real>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="107" left="12.0" top="138.0" width="480" height="30" align-x="12.0" align-y="150.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">z</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:plus />
+              <ml:id xml:space="preserve">a</ml:id>
+              <ml:apply>
+                <ml:mult />
+                <ml:imag symbol="i">1</ml:imag>
+                <ml:id xml:space="preserve">b</ml:id>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>-1.5</ml:real>
+                <ml:imag>1.0</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="108" left="12.0" top="180.0" width="480" height="30" align-x="12.0" align-y="192.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:eval placeholderMultiplicationStyle="default">
+          <ml:apply>
+            <ml:id xml:space="preserve">Re</ml:id>
+            <ml:id xml:space="preserve">z</ml:id>
+          </ml:apply>
+          <ml:result>
+            <ml:real>-1.5</ml:real>
+          </ml:result>
+        </ml:eval>
+      </math>
+    </region>
+    <region region-id="109" left="240.0" top="180.0" width="480" height="30" align-x="240.0" align-y="192.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:eval placeholderMultiplicationStyle="default">
+          <ml:apply>
+            <ml:id xml:space="preserve">Im</ml:id>
+            <ml:id xml:space="preserve">z</ml:id>
+          </ml:apply>
+          <ml:result>
+            <ml:real>1</ml:real>
+          </ml:result>
+        </ml:eval>
+      </math>
+    </region>
+    <region region-id="110" left="12.0" top="218.0" width="480" height="30" align-x="12.0" align-y="230.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">r</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:sqrt />
+              <ml:apply>
+                <ml:plus />
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">a</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">b</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:real>1.8027756377319946</ml:real>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="190" left="12" top="258" width="245" height="35" align-x="12" align-y="270" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:apply>
+            <ml:id xml:space="preserve">arctg</ml:id>
+            <ml:id xml:space="preserve">x</ml:id>
+          </ml:apply>
+          <ml:apply>
+            <ml:id xml:space="preserve">atan</ml:id>
+            <ml:id xml:space="preserve">x</ml:id>
+          </ml:apply>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="191" left="270" top="258" width="245" height="35" align-x="270" align-y="270" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:apply>
+            <ml:id xml:space="preserve">arcctg</ml:id>
+            <ml:id xml:space="preserve">x</ml:id>
+          </ml:apply>
+          <ml:apply>
+            <ml:id xml:space="preserve">acot</ml:id>
+            <ml:id xml:space="preserve">x</ml:id>
+          </ml:apply>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="111" left="12" top="303" width="245" height="35" align-x="12" align-y="315" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">φ</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:plus />
+              <ml:id xml:space="preserve">π</ml:id>
+              <ml:apply>
+                <ml:id xml:space="preserve">arctg</ml:id>
+                <ml:apply>
+                  <ml:div />
+                  <ml:id xml:space="preserve">b</ml:id>
+                  <ml:id xml:space="preserve">a</ml:id>
+                </ml:apply>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:real>2.5535900500422257</ml:real>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="192" left="270" top="303" width="245" height="35" align-x="270" align-y="315" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">φc</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:id xml:space="preserve">arcctg</ml:id>
+              <ml:apply>
+                <ml:div />
+                <ml:id xml:space="preserve">a</ml:id>
+                <ml:id xml:space="preserve">b</ml:id>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:real>2.5535900500422257</ml:real>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="113" left="12.0" top="375.0" width="480" height="30" align-x="12.0" align-y="387.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">zt</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:mult />
+              <ml:id xml:space="preserve">r</ml:id>
+              <ml:parens>
+                <ml:apply>
+                  <ml:plus />
+                  <ml:apply>
+                    <ml:id xml:space="preserve">cos</ml:id>
+                    <ml:id xml:space="preserve">φ</ml:id>
+                  </ml:apply>
+                  <ml:apply>
+                    <ml:mult />
+                    <ml:imag symbol="i">1</ml:imag>
+                    <ml:apply>
+                      <ml:id xml:space="preserve">sin</ml:id>
+                      <ml:id xml:space="preserve">φ</ml:id>
+                    </ml:apply>
+                  </ml:apply>
+                </ml:apply>
+              </ml:parens>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>-1.5</ml:real>
+                <ml:imag>1.0</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="114" left="12.0" top="410.0" width="480" height="30" align-x="12.0" align-y="422.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">ze</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:mult />
+              <ml:id xml:space="preserve">r</ml:id>
+              <ml:apply>
+                <ml:pow />
+                <ml:id xml:space="preserve">e</ml:id>
+                <ml:apply>
+                  <ml:mult />
+                  <ml:imag symbol="i">1</ml:imag>
+                  <ml:id xml:space="preserve">φ</ml:id>
+                </ml:apply>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>-1.5</ml:real>
+                <ml:imag>1.0</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="116" left="12.0" top="470.0" width="480" height="42" align-x="12.0" align-y="482.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">Xp</ml:id>
+          <ml:matrix rows="2" cols="1">
+            <ml:real>0</ml:real>
+            <ml:id xml:space="preserve">a</ml:id>
+          </ml:matrix>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="117" left="110.0" top="470.0" width="480" height="42" align-x="110.0" align-y="482.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">Yp</ml:id>
+          <ml:matrix rows="2" cols="1">
+            <ml:real>0</ml:real>
+            <ml:id xml:space="preserve">b</ml:id>
+          </ml:matrix>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="118" left="12.0" top="555.0" width="490" height="64" align-x="12.0" align-y="567.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Re z = −1,5</p>
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Im z = 1</p>
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">|z| = 1,802776</p>
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">φ = 146,309932°</p>
+      </text>
+    </region>
+    <region region-id="119" left="120.0" top="505.0" width="285" height="245" align-x="120.0" align-y="517.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <plot disable-calc="false" item-idref="201" />
+    </region>
+    <region region-id="120" left="562.0" top="65.0" width="490" height="19" align-x="562.0" align-y="77.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Heading 2" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">2. Арифметические действия</p>
+      </text>
+    </region>
+    <region region-id="122" left="562.0" top="119.0" width="480" height="30" align-x="562.0" align-y="131.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">c</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:plus />
+              <ml:id xml:space="preserve">a</ml:id>
+              <ml:apply>
+                <ml:mult />
+                <ml:real>0.1</ml:real>
+                <ml:id xml:space="preserve">N</ml:id>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:real>0.9</ml:real>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="123" left="562.0" top="157.0" width="480" height="30" align-x="562.0" align-y="169.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">d</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:minus />
+              <ml:id xml:space="preserve">b</ml:id>
+              <ml:apply>
+                <ml:mult />
+                <ml:real>0.1</ml:real>
+                <ml:id xml:space="preserve">N</ml:id>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:real>-1.4</ml:real>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="124" left="562.0" top="195.0" width="480" height="30" align-x="562.0" align-y="207.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">z1</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:plus />
+              <ml:id xml:space="preserve">a</ml:id>
+              <ml:apply>
+                <ml:mult />
+                <ml:imag symbol="i">1</ml:imag>
+                <ml:id xml:space="preserve">b</ml:id>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>-1.5</ml:real>
+                <ml:imag>1.0</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="125" left="562.0" top="233.0" width="480" height="30" align-x="562.0" align-y="245.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">z2</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:plus />
+              <ml:id xml:space="preserve">c</ml:id>
+              <ml:apply>
+                <ml:mult />
+                <ml:imag symbol="i">1</ml:imag>
+                <ml:id xml:space="preserve">d</ml:id>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>0.9</ml:real>
+                <ml:imag>-1.4</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="127" left="562.0" top="277.0" width="480" height="30" align-x="562.0" align-y="289.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">S</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:plus />
+              <ml:apply>
+                <ml:plus />
+                <ml:id xml:space="preserve">a</ml:id>
+                <ml:id xml:space="preserve">c</ml:id>
+              </ml:apply>
+              <ml:apply>
+                <ml:mult />
+                <ml:imag symbol="i">1</ml:imag>
+                <ml:parens>
+                  <ml:apply>
+                    <ml:plus />
+                    <ml:id xml:space="preserve">b</ml:id>
+                    <ml:id xml:space="preserve">d</ml:id>
+                  </ml:apply>
+                </ml:parens>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>-0.6</ml:real>
+                <ml:imag>-0.3999999999999999</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="129" left="562.0" top="326.0" width="480" height="30" align-x="562.0" align-y="338.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">D</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:plus />
+              <ml:apply>
+                <ml:minus />
+                <ml:id xml:space="preserve">a</ml:id>
+                <ml:id xml:space="preserve">c</ml:id>
+              </ml:apply>
+              <ml:apply>
+                <ml:mult />
+                <ml:imag symbol="i">1</ml:imag>
+                <ml:parens>
+                  <ml:apply>
+                    <ml:minus />
+                    <ml:id xml:space="preserve">b</ml:id>
+                    <ml:id xml:space="preserve">d</ml:id>
+                  </ml:apply>
+                </ml:parens>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>-2.4</ml:real>
+                <ml:imag>2.4</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="131" left="562.0" top="375.0" width="480" height="30" align-x="562.0" align-y="387.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">Prod</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:plus />
+              <ml:apply>
+                <ml:minus />
+                <ml:apply>
+                  <ml:mult />
+                  <ml:id xml:space="preserve">a</ml:id>
+                  <ml:id xml:space="preserve">c</ml:id>
+                </ml:apply>
+                <ml:apply>
+                  <ml:mult />
+                  <ml:id xml:space="preserve">b</ml:id>
+                  <ml:id xml:space="preserve">d</ml:id>
+                </ml:apply>
+              </ml:apply>
+              <ml:apply>
+                <ml:mult />
+                <ml:imag symbol="i">1</ml:imag>
+                <ml:parens>
+                  <ml:apply>
+                    <ml:plus />
+                    <ml:apply>
+                      <ml:mult />
+                      <ml:id xml:space="preserve">a</ml:id>
+                      <ml:id xml:space="preserve">d</ml:id>
+                    </ml:apply>
+                    <ml:apply>
+                      <ml:mult />
+                      <ml:id xml:space="preserve">b</ml:id>
+                      <ml:id xml:space="preserve">c</ml:id>
+                    </ml:apply>
+                  </ml:apply>
+                </ml:parens>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>0.04999999999999982</ml:real>
+                <ml:imag>2.9999999999999996</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="133" left="562.0" top="442.0" width="480" height="40" align-x="562.0" align-y="454.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">Q</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:div />
+              <ml:apply>
+                <ml:plus />
+                <ml:apply>
+                  <ml:plus />
+                  <ml:apply>
+                    <ml:mult />
+                    <ml:id xml:space="preserve">a</ml:id>
+                    <ml:id xml:space="preserve">c</ml:id>
+                  </ml:apply>
+                  <ml:apply>
+                    <ml:mult />
+                    <ml:id xml:space="preserve">b</ml:id>
+                    <ml:id xml:space="preserve">d</ml:id>
+                  </ml:apply>
+                </ml:apply>
+                <ml:apply>
+                  <ml:mult />
+                  <ml:imag symbol="i">1</ml:imag>
+                  <ml:parens>
+                    <ml:apply>
+                      <ml:minus />
+                      <ml:apply>
+                        <ml:mult />
+                        <ml:id xml:space="preserve">b</ml:id>
+                        <ml:id xml:space="preserve">c</ml:id>
+                      </ml:apply>
+                      <ml:apply>
+                        <ml:mult />
+                        <ml:id xml:space="preserve">a</ml:id>
+                        <ml:id xml:space="preserve">d</ml:id>
+                      </ml:apply>
+                    </ml:apply>
+                  </ml:parens>
+                </ml:apply>
+              </ml:apply>
+              <ml:apply>
+                <ml:plus />
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">c</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">d</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>-0.9927797833935018</ml:real>
+                <ml:imag>-0.43321299638989164</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="134" left="562.0" top="500.0" width="490" height="49" align-x="562.0" align-y="512.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Точные результаты:</p>
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">S = −3/5 − (2/5)i;     D = −12/5 + (12/5)i;</p>
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Prod = 1/20 + 3i;     Q = −275/277 − (120/277)i.</p>
+      </text>
+    </region>
+    <region region-id="135" left="12.0" top="850.0" width="490" height="19" align-x="12.0" align-y="862.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Heading 2" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">3. Сопряжение, обратное число и коллинеарность</p>
+      </text>
+    </region>
+    <region region-id="136" left="12.0" top="892.0" width="480" height="30" align-x="12.0" align-y="904.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">zc</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:minus />
+              <ml:id xml:space="preserve">a</ml:id>
+              <ml:apply>
+                <ml:mult />
+                <ml:imag symbol="i">1</ml:imag>
+                <ml:id xml:space="preserve">b</ml:id>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>-1.5</ml:real>
+                <ml:imag>-1.0</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="137" left="12.0" top="933.0" width="480" height="38" align-x="12.0" align-y="945.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">zi</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:div />
+              <ml:id xml:space="preserve">zc</ml:id>
+              <ml:apply>
+                <ml:plus />
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">a</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">b</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:complex>
+                <ml:real>-0.46153846153846156</ml:real>
+                <ml:imag>-0.3076923076923077</ml:imag>
+              </ml:complex>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="140" left="12.0" top="993.0" width="125" height="77" align-x="12.0" align-y="1005.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">Xc</ml:id>
+          <ml:matrix rows="3" cols="1">
+            <ml:real>0</ml:real>
+            <ml:apply>
+              <ml:div />
+              <ml:id xml:space="preserve">a</ml:id>
+              <ml:apply>
+                <ml:plus />
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">a</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">b</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+              </ml:apply>
+            </ml:apply>
+            <ml:id xml:space="preserve">a</ml:id>
+          </ml:matrix>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="141" left="150.0" top="993.0" width="125" height="77" align-x="150.0" align-y="1005.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">Yc</ml:id>
+          <ml:matrix rows="3" cols="1">
+            <ml:real>0</ml:real>
+            <ml:apply>
+              <ml:div />
+              <ml:apply>
+                <ml:neg />
+                <ml:id xml:space="preserve">b</ml:id>
+              </ml:apply>
+              <ml:apply>
+                <ml:plus />
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">a</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+                <ml:apply>
+                  <ml:pow />
+                  <ml:id xml:space="preserve">b</ml:id>
+                  <ml:real>2</ml:real>
+                </ml:apply>
+              </ml:apply>
+            </ml:apply>
+            <ml:apply>
+              <ml:neg />
+              <ml:id xml:space="preserve">b</ml:id>
+            </ml:apply>
+          </ml:matrix>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="180" left="300" top="993.0" width="480" height="25" align-x="300" align-y="1005.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">Xa</ml:id>
+          <ml:id xml:space="preserve">a</ml:id>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="181" left="390" top="993.0" width="480" height="25" align-x="390" align-y="1005.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">Ya</ml:id>
+          <ml:id xml:space="preserve">b</ml:id>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="142" left="120.0" top="1083.0" width="285" height="245" align-x="120.0" align-y="1095.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <plot disable-calc="false" item-idref="202" />
+    </region>
+    <region region-id="144" left="562.0" top="850.0" width="490" height="19" align-x="562.0" align-y="862.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Heading 2" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">4. Все корни 29-й степени</p>
+      </text>
+    </region>
+    <region region-id="145" left="562.0" top="888.0" width="480" height="30" align-x="562.0" align-y="900.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">n</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:plus />
+              <ml:id xml:space="preserve">N</ml:id>
+              <ml:real>5</ml:real>
+            </ml:apply>
+            <ml:result>
+              <ml:real>29</ml:real>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="146" left="562.0" top="928.0" width="480" height="38" align-x="562.0" align-y="940.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">ρ</ml:id>
+          <ml:eval placeholderMultiplicationStyle="default">
+            <ml:apply>
+              <ml:pow />
+              <ml:id xml:space="preserve">r</ml:id>
+              <ml:apply>
+                <ml:div />
+                <ml:real>1</ml:real>
+                <ml:id xml:space="preserve">n</ml:id>
+              </ml:apply>
+            </ml:apply>
+            <ml:result>
+              <ml:real>1.0205295281866922</ml:real>
+            </ml:result>
+          </ml:eval>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="148" left="562.0" top="1020.0" width="480" height="30" align-x="562.0" align-y="1032.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:id xml:space="preserve">k</ml:id>
+          <ml:range>
+            <ml:real>0</ml:real>
+            <ml:apply>
+              <ml:minus />
+              <ml:id xml:space="preserve">n</ml:id>
+              <ml:real>1</ml:real>
+            </ml:apply>
+          </ml:range>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="149" left="562.0" top="1055.0" width="480" height="40" align-x="562.0" align-y="1067.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:apply>
+            <ml:indexer />
+            <ml:id xml:space="preserve">θ</ml:id>
+            <ml:id xml:space="preserve">k</ml:id>
+          </ml:apply>
+          <ml:apply>
+            <ml:div />
+            <ml:apply>
+              <ml:plus />
+              <ml:id xml:space="preserve">φ</ml:id>
+              <ml:apply>
+                <ml:mult />
+                <ml:apply>
+                  <ml:mult />
+                  <ml:real>2</ml:real>
+                  <ml:id xml:space="preserve">π</ml:id>
+                </ml:apply>
+                <ml:id xml:space="preserve">k</ml:id>
+              </ml:apply>
+            </ml:apply>
+            <ml:id xml:space="preserve">n</ml:id>
+          </ml:apply>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="150" left="562.0" top="1100.0" width="480" height="38" align-x="562.0" align-y="1112.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:apply>
+            <ml:indexer />
+            <ml:id xml:space="preserve">Xr</ml:id>
+            <ml:id xml:space="preserve">k</ml:id>
+          </ml:apply>
+          <ml:apply>
+            <ml:mult />
+            <ml:id xml:space="preserve">ρ</ml:id>
+            <ml:apply>
+              <ml:id xml:space="preserve">cos</ml:id>
+              <ml:apply>
+                <ml:indexer />
+                <ml:id xml:space="preserve">θ</ml:id>
+                <ml:id xml:space="preserve">k</ml:id>
+              </ml:apply>
+            </ml:apply>
+          </ml:apply>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="151" left="562.0" top="1145.0" width="480" height="38" align-x="562.0" align-y="1157.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:apply>
+            <ml:indexer />
+            <ml:id xml:space="preserve">Yr</ml:id>
+            <ml:id xml:space="preserve">k</ml:id>
+          </ml:apply>
+          <ml:apply>
+            <ml:mult />
+            <ml:id xml:space="preserve">ρ</ml:id>
+            <ml:apply>
+              <ml:id xml:space="preserve">sin</ml:id>
+              <ml:apply>
+                <ml:indexer />
+                <ml:id xml:space="preserve">θ</ml:id>
+                <ml:id xml:space="preserve">k</ml:id>
+              </ml:apply>
+            </ml:apply>
+          </ml:apply>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="152" left="562.0" top="1192.0" width="480" height="38" align-x="562.0" align-y="1204.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:define>
+          <ml:apply>
+            <ml:indexer />
+            <ml:id xml:space="preserve">w</ml:id>
+            <ml:id xml:space="preserve">k</ml:id>
+          </ml:apply>
+          <ml:apply>
+            <ml:plus />
+            <ml:apply>
+              <ml:indexer />
+              <ml:id xml:space="preserve">Xr</ml:id>
+              <ml:id xml:space="preserve">k</ml:id>
+            </ml:apply>
+            <ml:apply>
+              <ml:mult />
+              <ml:imag symbol="i">1</ml:imag>
+              <ml:apply>
+                <ml:indexer />
+                <ml:id xml:space="preserve">Yr</ml:id>
+                <ml:id xml:space="preserve">k</ml:id>
+              </ml:apply>
+            </ml:apply>
+          </ml:apply>
+        </ml:define>
+      </math>
+    </region>
+    <region region-id="153" left="670.0" top="1244.0" width="285" height="245" align-x="670.0" align-y="1256.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <plot disable-calc="false" item-idref="203" />
+    </region>
+    <region region-id="155" left="562.0" top="1650.0" width="490" height="19" align-x="562.0" align-y="1662.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Heading 2" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Таблица всех значений корня</p>
+      </text>
+    </region>
+    <region region-id="156" left="562.0" top="1685.0" width="490" height="19" align-x="562.0" align-y="1697.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Округление до 6 знаков; вычисления выше сохраняют полную точность.</p>
+      </text>
+    </region>
+    <region region-id="157" left="562.0" top="1717.0" width="490" height="19" align-x="562.0" align-y="1729.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">k       Re(wₖ)              Im(wₖ)                    k       Re(wₖ)              Im(wₖ)</p>
+      </text>
+    </region>
+    <region region-id="158" left="562.0" top="1749.0" width="490" height="19" align-x="562.0" align-y="1761.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 0       1.016576           0.089746            15      -1.000913          -0.199132</p>
+      </text>
+    </region>
+    <region region-id="159" left="562.0" top="1775.0" width="490" height="19" align-x="562.0" align-y="1787.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 1       0.973516           0.306182            16      -0.934705          -0.409643</p>
+      </text>
+    </region>
+    <region region-id="160" left="562.0" top="1801.0" width="490" height="19" align-x="562.0" align-y="1813.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 2       0.884936           0.508301            17      -0.824791          -0.600999</p>
+      </text>
+    </region>
+    <region region-id="161" left="562.0" top="1827.0" width="490" height="19" align-x="562.0" align-y="1839.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 3       0.754977           0.686652            18      -0.676311          -0.764254</p>
+      </text>
+    </region>
+    <region region-id="162" left="562.0" top="1853.0" width="490" height="19" align-x="562.0" align-y="1865.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 4       0.589716           0.832896            19      -0.496207          -0.891773</p>
+      </text>
+    </region>
+    <region region-id="163" left="562.0" top="1879.0" width="490" height="19" align-x="562.0" align-y="1891.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 5       0.396881           0.940195            20      -0.292901          -0.977594</p>
+      </text>
+    </region>
+    <region region-id="164" left="562.0" top="1905.0" width="490" height="19" align-x="562.0" align-y="1917.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 6       0.185488           1.003531            21      -0.075899          -1.017703</p>
+      </text>
+    </region>
+    <region region-id="165" left="562.0" top="1931.0" width="490" height="19" align-x="562.0" align-y="1943.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 7      -0.034579           1.019944            22       0.144651          -1.010226</p>
+      </text>
+    </region>
+    <region region-id="166" left="562.0" top="1957.0" width="490" height="19" align-x="562.0" align-y="1969.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 8      -0.253028           0.988664            23       0.358438          -0.955512</p>
+      </text>
+    </region>
+    <region region-id="167" left="562.0" top="1983.0" width="490" height="19" align-x="562.0" align-y="1995.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit"> 9      -0.459646           0.911157            24       0.555465          -0.856119</p>
+      </text>
+    </region>
+    <region region-id="168" left="562.0" top="2009.0" width="490" height="19" align-x="562.0" align-y="2021.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">10      -0.644771           0.791044            25       0.726518          -0.716695</p>
+      </text>
+    </region>
+    <region region-id="169" left="562.0" top="2035.0" width="490" height="19" align-x="562.0" align-y="2047.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">11      -0.799748           0.633943            26       0.863601          -0.543759</p>
+      </text>
+    </region>
+    <region region-id="170" left="562.0" top="2061.0" width="490" height="19" align-x="562.0" align-y="2073.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">12      -0.917329           0.447200            27       0.960303          -0.345397</p>
+      </text>
+    </region>
+    <region region-id="171" left="562.0" top="2087.0" width="490" height="19" align-x="562.0" align-y="2099.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">13      -0.992017           0.239546            28       1.012102          -0.130885</p>
+      </text>
+    </region>
+    <region region-id="172" left="562.0" top="2113.0" width="490" height="19" align-x="562.0" align-y="2125.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">14      -1.020320           0.020691</p>
+      </text>
+    </region>
+    <region region-id="173" left="562.0" top="2165.0" width="480" height="40" align-x="562.0" align-y="2177.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <math optimize="false" disable-calc="false">
+        <ml:eval placeholderMultiplicationStyle="default">
+          <ml:apply>
+            <ml:pow />
+            <ml:apply>
+              <ml:indexer />
+              <ml:id xml:space="preserve">w</ml:id>
+              <ml:real>0</ml:real>
+            </ml:apply>
+            <ml:id xml:space="preserve">n</ml:id>
+          </ml:apply>
+          <ml:result>
+            <ml:complex>
+              <ml:real>-1.5</ml:real>
+              <ml:imag>1.0</ml:imag>
+            </ml:complex>
+          </ml:result>
+        </ml:eval>
+      </math>
+    </region>
+    <region region-id="193" left="224" top="568" width="14" height="12" align-x="224" align-y="577" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">z</p>
+      </text>
+    </region>
+    <region region-id="194" left="396" top="689" width="16" height="12" align-x="396" align-y="698" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">O</p>
+      </text>
+    </region>
+    <region region-id="195" left="234" top="1092.0" width="42" height="12" align-x="234" align-y="1101.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">A (z)</p>
+      </text>
+    </region>
+    <region region-id="196" left="234" top="1343.0" width="42" height="12" align-x="234" align-y="1352.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">B (z̄)</p>
+      </text>
+    </region>
+    <region region-id="197" left="367" top="1267.0" width="42" height="12" align-x="367" align-y="1276.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">C (1/z)</p>
+      </text>
+    </region>
+    <region region-id="198" left="428" top="1212.0" width="16" height="12" align-x="428" align-y="1221.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">O</p>
+      </text>
+    </region>
+    <region region-id="199" left="562" top="1623" width="380" height="12" align-x="562" align-y="1632" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Номер у точки соответствует индексу k корня wₖ.</p>
+      </text>
+    </region>
+    <region region-id="200" left="981.94" top="1367.76" width="17" height="12" align-x="981.94" align-y="1376.76" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">0</p>
+      </text>
+    </region>
+    <region region-id="201" left="976.22" top="1343.05" width="17" height="12" align-x="976.22" align-y="1352.05" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">1</p>
+      </text>
+    </region>
+    <region region-id="202" left="964.47" top="1319.98" width="17" height="12" align-x="964.47" align-y="1328.98" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">2</p>
+      </text>
+    </region>
+    <region region-id="203" left="947.21" top="1299.63" width="17" height="12" align-x="947.21" align-y="1308.63" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">3</p>
+      </text>
+    </region>
+    <region region-id="204" left="925.28" top="1282.93" width="17" height="12" align-x="925.28" align-y="1291.93" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">4</p>
+      </text>
+    </region>
+    <region region-id="205" left="899.68" top="1270.69" width="17" height="12" align-x="899.68" align-y="1279.69" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">5</p>
+      </text>
+    </region>
+    <region region-id="206" left="871.62" top="1263.46" width="17" height="12" align-x="871.62" align-y="1272.46" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">6</p>
+      </text>
+    </region>
+    <region region-id="207" left="842.41" top="1261.59" width="17" height="12" align-x="842.41" align-y="1270.59" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">7</p>
+      </text>
+    </region>
+    <region region-id="208" left="813.41" top="1265.16" width="17" height="12" align-x="813.41" align-y="1274.16" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">8</p>
+      </text>
+    </region>
+    <region region-id="209" left="785.99" top="1274.0" width="17" height="12" align-x="785.99" align-y="1283.0" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">9</p>
+      </text>
+    </region>
+    <region region-id="210" left="759.41" top="1287.71" width="17" height="12" align-x="759.41" align-y="1296.71" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">10</p>
+      </text>
+    </region>
+    <region region-id="211" left="738.84" top="1305.64" width="17" height="12" align-x="738.84" align-y="1314.64" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">11</p>
+      </text>
+    </region>
+    <region region-id="212" left="723.24" top="1326.96" width="17" height="12" align-x="723.24" align-y="1335.96" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">12</p>
+      </text>
+    </region>
+    <region region-id="213" left="713.32" top="1350.66" width="17" height="12" align-x="713.32" align-y="1359.66" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">13</p>
+      </text>
+    </region>
+    <region region-id="214" left="709.56" top="1375.64" width="17" height="12" align-x="709.56" align-y="1384.64" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">14</p>
+      </text>
+    </region>
+    <region region-id="215" left="712.14" top="1400.73" width="17" height="12" align-x="712.14" align-y="1409.73" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">15</p>
+      </text>
+    </region>
+    <region region-id="216" left="720.93" top="1424.76" width="17" height="12" align-x="720.93" align-y="1433.76" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">16</p>
+      </text>
+    </region>
+    <region region-id="217" left="735.52" top="1446.6" width="17" height="12" align-x="735.52" align-y="1455.6" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">17</p>
+      </text>
+    </region>
+    <region region-id="218" left="755.23" top="1465.23" width="17" height="12" align-x="755.23" align-y="1474.23" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">18</p>
+      </text>
+    </region>
+    <region region-id="219" left="779.13" top="1479.79" width="17" height="12" align-x="779.13" align-y="1488.79" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">19</p>
+      </text>
+    </region>
+    <region region-id="220" left="806.12" top="1489.58" width="17" height="12" align-x="806.12" align-y="1498.58" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">20</p>
+      </text>
+    </region>
+    <region region-id="221" left="834.93" top="1494.16" width="17" height="12" align-x="834.93" align-y="1503.16" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">21</p>
+      </text>
+    </region>
+    <region region-id="222" left="864.2" top="1493.31" width="17" height="12" align-x="864.2" align-y="1502.31" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">22</p>
+      </text>
+    </region>
+    <region region-id="223" left="892.58" top="1487.06" width="17" height="12" align-x="892.58" align-y="1496.06" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">23</p>
+      </text>
+    </region>
+    <region region-id="224" left="918.73" top="1475.72" width="17" height="12" align-x="918.73" align-y="1484.72" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">24</p>
+      </text>
+    </region>
+    <region region-id="225" left="941.44" top="1459.8" width="17" height="12" align-x="941.44" align-y="1468.8" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">25</p>
+      </text>
+    </region>
+    <region region-id="226" left="959.63" top="1440.06" width="17" height="12" align-x="959.63" align-y="1449.06" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">26</p>
+      </text>
+    </region>
+    <region region-id="227" left="972.47" top="1417.42" width="17" height="12" align-x="972.47" align-y="1426.42" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">27</p>
+      </text>
+    </region>
+    <region region-id="228" left="979.34" top="1392.94" width="17" height="12" align-x="979.34" align-y="1401.94" show-border="false" show-highlight="false" is-protected="false" z-order="0" background-color="inherit" tag="">
+      <text use-page-width="false" push-down="false" lock-width="true">
+        <p style="Normal" margin-left="0" margin-right="0" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">28</p>
+      </text>
+    </region>
+  </regions>
+  <binaryContent>
+    <item item-id="1" content-encoding="gzip">H4sIAAAAAAAA/2yQwW6CQBCGZ1wqSFG89NI1wWfwCXowTQ+NJvoAZItUMRIbSpMe++b0n9k9
+GWczw8/s9w/LZkTEyD0yVW1Q88OqPHbu61R+XrvW9TFJPCEn2l673mmLnpFJW20/znXV+9bO
+P2i8RDFhvnhz1fKWut/m+1VHR8oukO8cWB8DFvHiXjdMifvOVfVqbXTHBq7gObHlQRSzHcFT
+8IitgbNgwzYapBOBoQHiAczfC7bGwogrVgYiEUbgicwRewpG7Y9g1J6BUftUvwUxUwYiF0Zg
+f9x889PWXVO5i//zRI/9hjxQg2XCFaXh2m4ik/IPAAD//wMAHK222K8BAAA=</item>
+    <item item-id="2" content-encoding="gzip">H4sIAAAAAAAA/4yQwW7CMAyG7aZbS9etu3AhSOUZeIIdENph2iT2ACiUAkVUTF2ROPLm3W8n
+u+w0R3b+Ot/vRsmJiJGfyEy1QS228/W+c1+H9e7cta5PSGKMHGl74XqnLZog07b62Bzrqvet
+ld8omqGYMF+8hWr5yty1+V7q6FjZKfKNA+tjwCKe/r/7OzzpO1fV84XRIxvAkp+JLQ+imG0E
+U8kRWwNryYZtPEgnBkMDxB2Y2wuO7oURV6IMRCqMwCOZI/YMjNofwKg9B6P2R/0XxJMyEIUw
+AvvrFu+Xtu6ayp38g6R67VfklhosE14uC6/5J3IpPwAAAP//AwARvY6sxgEAAA==</item>
+    <item item-id="201" content-encoding="gzip">H4sIAAAAAAAC/41Ty27TUBCd6+tn6tRJIUDsFPPYsELFggW7qqoAiZcUNrCqjGPaIEKCa1CXEf/Amg0fwAKx5z/4lzBzJi2V2HCt8bzOuTNzrx0TkWF5wdKBbfkd1h/G9eF0/t4jWXdZosm80piL2H2Bzarnr9/WVYsIjcF3+O0fHy325icafsIScGB8BnzK8ojlu1H57fz1ZT20667IsdBu29R1hlzB0l3AdIvhL6Kl9YqvrHddX7UXqPZD1UFUOAlRGzLD2Dt0m+7xrMWXx8wNaQPJHx0kdzRJFIO6DLoFcXYv5tAmzM8xSidgffOJrPOKpJ2eMry+Fu1tqe5fAPLTFs9izA7RRfg/z3waKLF/SUsNOHRZSw1Q6oo6PThDBbup7j7MVKcjHTE7P8W2jpjRVR1xGyXl/CjXbdJrWjPn0HUtk6PMDR1vKOO9xHg3ca/JpDg4bMrF0cGbeTMr2wBo6TNCeL9sS73CVBVY+KSc9d3dwtXKpXbKk+nxA+yjn9RIPhZzevVYK37IjP4/erp50DZlVRf7FqlsDcxNj0xmGJlGfBYm465WuXFMZpmcG2sydyURl1G0YsNjzHKXU75gZIcAGDZCwQg4kn2E3mEM6BuMAT1mDOhd1GJjExg2EsEIWBtOnn2c1c20Kt/pkYRoXP6KCU35keLJ+ie19M+Kz3t/AJHxEETVAwAA</item>
+    <item item-id="202" content-encoding="gzip">H4sIAAAAAAAC/41TS2/TQBCe9foV16lL0hJaOzGBtnBCZQUS3KqqAiReUrjAqTKOaYOaJrgG9Rj1P3Dmwg/gUPWO+Bv8lzAPt1Tiwlrjmf32m9d6HAKAQnmDErCt8e0XnwbF/mhy5ACtByiN4SQXzGbsMdHG+ev3H4u8YgQG7G/h2z0+mO5MTgR+geIhMLgkvkR5hvJDify2/u5pPdV1VWBp1nZVFkXMZwalOWXTNqs/AWbaMd9Qb9uuaMcT7fqivYaxIoAvPnoofR/uwUPs1Xx9DnDqwwIfngVXDwFCdp15TQN4uhMitMjmacipIxP8wnN3ib2HKNp6BznANQa+10BG3JbEctpSTmtZdHtFylrGLpXaArjO+/PLPXTEsX1DiuggtCpFdLiINdm0eBML2U4ketwVnfQ4atXl/rakv5Sbn3XhpjSfckq6WehLmOSW5OwjdFvS9DnNujQeb0jj69TnW2p8UxqvAW78Ds9CNDR7+2U2Pdj7MCnHWeVxnBUaKYZ3syqTz74mir14DMl4hHKXx4EGIchORsdPOI6MYUIDpi7GhdccH1DJ/6MXwb2qzPLC7Gq50JqYqiVQsUJer6GUirGoec9Tloo1OqdKq9jGMKmykQVzNBwkzbbxyCUORfCYg4ZPHCI3KBC5B8hh9wXksHuIHHZvcjI0FpmDRkQcIkvB0avP46Ic5dmhXInPhdOfNIQRPpQ8qn9sDf+s8OruD1BNMl8JBAAA</item>
+    <item item-id="203" content-encoding="gzip">H4sIAAAAAAAC/41TzW7TQBCe9fq/Tp0UAo03xbS9cEJg9cKtqipAogUpXOipMo6bBjVN6hrUY8Q7cObSB+CAuPMevEuYn7RN1UvXGs/szPfN7HjWEQAolI8oIdsa33551isHw/GpA7S2UIL+uBCfzb5XBBsVHz5/KYuaPdBjvoVv9/x4sjO+EPceioeO3jVwH+Utyi8l8s+62dN6o+enAkuztuuqLA3HMpTGhE076/wFmGon+4l623ZFO55o1xftBZkVA9Q+MpR+Cc8pR5j9eIdcH5Y4+DtcDAJETJ16jQwwuhOha5nN7xGXjpl16QJo6wAq9DSF4bSkaHNFdOsBI7+tYC9KvQB4yPs/13toC7H1SEq10fVYSrW51KpsmrzpCNhOJHvHiE660qJZ7GJNWjTwRFpcu91iKqmSp1I3Rde6lEq51Ia02KEWP3GLmzzbuJ8dDqp8cnx4NK5Gee0xms4asHs3r3MZYyKKWXytrPn8nvF4abBhfjE8f8155Fp16cKoq/HzmuEDqnt/71Vyr67yosx2NYfMHJiqJiijEJkEOAJl8FSzVFnKaCSnSitjz8hjIwpmaDiImW5jyCUMZfAYg4ZPGAIHlIfoIWKYvoQYpkeIYXqDa6GxzBg0YsIQWA4cv/86KqthkZ/IJ/H54PRn9GGIDxWP5z+qhjsrWtz9Bx/7HF3ZAwAA</item>
+  </binaryContent>
+</worksheet>

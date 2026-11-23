@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root{color-scheme:light;font:16px system-ui,sans-serif;color:#132433;background:#eef2f5}
+body{margin:0;padding:clamp(16px,5vw,60px)}
+main{max-width:1040px;margin:auto;background:white;padding:clamp(12px,3vw,32px);border:1px solid #d2dde5;border-radius:16px}
+h1{margin:0 0 16px;font-size:clamp(20px,4vw,32px);letter-spacing:-.025em}
+.controls{display:flex;flex-wrap:wrap;gap:14px 24px;margin-bottom:12px}
+input{accent-color:#006d79}
+canvas{display:block;width:100%;height:clamp(300px,58vh,620px);border:1px solid #d2dde5;border-radius:10px;box-sizing:border-box}
+output{display:block;min-height:1.5em;padding-top:10px;color:#3f5567;font-variant-numeric:tabular-nums}
+</style>
+<main>
+  <h1>__TITLE__</h1>
+  <div class="controls">
+    <label><input id="line" type="checkbox"> Соединить точки</label>
+    <label><input id="equal" type="checkbox"> Одинаковый масштаб осей</label>
+  </div>
+  <canvas id="graph" data-x="__X_AXIS__" data-y="__Y_AXIS__" aria-label="Координатный график"></canvas>
+  <output id="point" aria-live="polite"></output>
+</main>
+<script>
+const data = /*POINT_DATA*/[];
+const sameScale = /*EQUAL_SCALE*/false;
+const graph = document.getElementById("graph");
+const status = document.getElementById("point");
+const line = document.getElementById("line");
+const equal = document.getElementById("equal");
+const ctx = graph.getContext("2d");
+const format = new Intl.NumberFormat("ru", { maximumSignificantDigits: 6 });
+const fallback = `${data.length} точек`;
+const points = [];
+line.checked = !sameScale;
+equal.checked = sameScale;
+status.textContent = fallback;
+
+function bounds(axis) {
+  let low = Infinity, high = -Infinity;
+  for (const pair of data) {
+    low = Math.min(low, pair[axis]);
+    high = Math.max(high, pair[axis]);
+  }
+  const offset = (high / 2 - low / 2) * .16 || Math.max(Math.abs(low) * .08, 1);
+  const min = low - offset, max = high + offset;
+  return [Number.isFinite(min) ? min : low, Number.isFinite(max) ? max : high];
+}
+const rawX = bounds(0);
+const rawY = bounds(1);
+
+function draw() {
+  let [xmin, xmax] = rawX;
+  let [ymin, ymax] = rawY;
+  const ratio = window.devicePixelRatio || 1;
+  const w = graph.clientWidth, h = graph.clientHeight;
+  graph.width = w * ratio;
+  graph.height = h * ratio;
+  ctx.scale(ratio, ratio);
+  const left = 66, right = w - 24, top = 28, bottom = h - 52;
+  if (right <= left || bottom <= top) return;
+  let sx = (xmax / 2 - xmin / 2) / (right - left);
+  let sy = (ymax / 2 - ymin / 2) / (bottom - top);
+  if (equal.checked) sx = sy = Math.max(sx, sy);
+  const xcenter = xmin / 2 + xmax / 2, ycenter = ymin / 2 + ymax / 2;
+  const xpos = x => (left + right) / 2 + (x / 2 - xcenter / 2) / sx;
+  const ypos = y => (top + bottom) / 2 - (y / 2 - ycenter / 2) / sy;
+  const stroke = (x1,y1,x2,y2) => { ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); };
+  ctx.font = "12px system-ui";
+  ctx.fillStyle = "#345064";
+  for (let i = 0; i <= 5; i++) {
+    const xx = left + (right - left) * i / 5;
+    const yy = bottom - (bottom - top) * i / 5;
+    ctx.strokeStyle = "#dce5eb";
+    stroke(xx,top,xx,bottom);
+    stroke(left,yy,right,yy);
+    ctx.textAlign = "center";
+    ctx.fillText(format.format(xcenter + (xx - (left + right) / 2) * sx * 2), xx, bottom + 18, 78);
+    ctx.textAlign = "right";
+    ctx.fillText(format.format(ycenter + ((top + bottom) / 2 - yy) * sy * 2), left - 8, yy + 4, 56);
+  }
+  ctx.strokeStyle = "#8296a4";
+  if (xpos(0) >= left && xpos(0) <= right) stroke(xpos(0),top,xpos(0),bottom);
+  if (ypos(0) >= top && ypos(0) <= bottom) stroke(left,ypos(0),right,ypos(0));
+  ctx.fillText(graph.dataset.x, right, h - 12, right - left);
+  ctx.textAlign = "left";
+  ctx.fillText(graph.dataset.y, 10, 16, right - left);
+  points.length = 0;
+  for (const [x,y] of data) points.push([xpos(x),ypos(y)]);
+  ctx.strokeStyle = ctx.fillStyle = "#006d79";
+  if (line.checked && points.length > 1) {
+    ctx.beginPath();
+    points.forEach(([x,y],i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
+    ctx.stroke();
+  }
+  if (!line.checked || points.length < 400) for (const [x,y] of points) {
+    ctx.beginPath(); ctx.arc(x,y,points.length > 400 ? 1 : 3.5,0,Math.PI*2); ctx.fill();
+  }
+}
+
+graph.addEventListener("pointermove", ({offsetX,offsetY}) => {
+  let nearest = -1, best = 13 ** 2;
+  points.forEach(([x,y], i) => {
+    const distance = (x-offsetX)**2 + (y-offsetY)**2;
+    if (distance < best) { best = distance; nearest = i; }
+  });
+  status.textContent = nearest < 0 ? fallback : `Точка ${nearest+1} · ${graph.dataset.x} = ${format.format(data[nearest][0])} · ${graph.dataset.y} = ${format.format(data[nearest][1])}`;
+});
+graph.addEventListener("pointerleave", () => status.textContent = fallback);
+line.addEventListener("change", draw);
+equal.addEventListener("change", draw);
+new ResizeObserver(draw).observe(graph);
+</script>
+</html>

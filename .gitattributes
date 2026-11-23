@@ -1,0 +1,4 @@
+* text=auto
+*.xmcd -text whitespace=cr-at-eol
+*.xmcdz binary
+*.zip binary
