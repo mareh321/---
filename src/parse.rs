@@ -1,4 +1,6 @@
-use crate::eval::{Datum, Expr, Function, IndexedAssignment, Matrix, Stmt, MAX_CELLS};
+use crate::eval::{
+    CalculusDomain, CalculusExpr, Datum, Expr, Function, IndexedAssignment, Matrix, Stmt, MAX_CELLS,
+};
 use crate::value::{Calc, Value};
 use roxmltree::Node;
 use std::{collections::HashMap, sync::Arc};
@@ -92,17 +94,67 @@ fn expand_sequence<'a, 'i>(nodes: impl Iterator<Item = Xml<'a, 'i>>) -> Vec<Xml<
     flat
 }
 
+fn snapshot_scalar(node: Xml<'_, '_>) -> Calc<Value> {
+    if !named(node, ML, "unitedValue") {
+        return scalar(node);
+    }
+    const UNITS: &str = "http://schemas.mathsoft.com/units10";
+    let mut parts = elements(node);
+    let mut value = scalar(parts.next().ok_or("в эталоне отсутствует число")?)?;
+    let monomial = parts
+        .next()
+        .filter(|&unit| named(unit, UNITS, "unitMonomial"))
+        .ok_or("неподдерживаемая запись единиц в эталоне")?;
+    let mut factors = elements(monomial).peekable();
+    if parts.next().is_some() || factors.peek().is_none() {
+        return Err("неверный формат единиц в эталоне".into());
+    }
+    for factor in factors {
+        let unit = match factor.attribute("unit") {
+            Some("meter") => "m",
+            Some("kilogram") => "kg",
+            Some("second") => "s",
+            Some("ampere") => "A",
+            Some("kelvin") => "K",
+            Some("mole") => "mol",
+            Some("candela") => "cd",
+            _ => return Err("неподдерживаемая единица в эталоне".into()),
+        };
+        if !named(factor, UNITS, "unitReference")
+            || !matches!(factor.attribute("power-denominator"), None | Some("1"))
+            || elements(factor).next().is_some()
+        {
+            return Err("неподдерживаемая степень единицы в эталоне".into());
+        }
+        let power = factor
+            .attribute("power-numerator")
+            .unwrap_or("1")
+            .parse::<i16>()
+            .map_err(|_| "неверная степень единицы в эталоне")?;
+        let scale = Value::constant(unit).ok_or("неизвестная базовая единица")?;
+        value = value.binary(
+            "mult",
+            scale.binary("pow", Value::scalar(f64::from(power))?)?,
+        )?;
+    }
+    Ok(value)
+}
+
 pub fn snapshot(eval: Xml<'_, '_>) -> Option<Calc<Datum>> {
     let node = elements(eval).find(|&n| named(n, ML, "result"))?;
     let node = elements(node).next()?;
     Some(if named(node, ML, "matrix") {
         dimensions(node)
             .and_then(|(r, c)| {
-                Matrix::from_values(r, c, elements(node).map(scalar).collect::<Calc<_>>()?)
+                Matrix::from_values(
+                    r,
+                    c,
+                    elements(node).map(snapshot_scalar).collect::<Calc<_>>()?,
+                )
             })
             .map(|matrix| Datum::Matrix(Arc::new(matrix)))
     } else {
-        scalar(node).map(Datum::from)
+        snapshot_scalar(node).map(Datum::from)
     })
 }
 
@@ -184,6 +236,103 @@ impl Compiler<'_> {
         self.reference("ORIGIN")
             .map(Expr::Ref)
             .unwrap_or(Expr::Literal(self.default_origin))
+    }
+
+    fn resolve_name(&mut self, name: String, params: &[String], locals: &[String]) -> Calc<Expr> {
+        if locals.contains(&name) {
+            return Ok(Expr::Local(name));
+        }
+        if let Some(index) = params.iter().position(|param| param == &name) {
+            return Ok(Expr::Param(index));
+        }
+        if let Some(index) = self.reference(&name) {
+            return Ok(Expr::Ref(index));
+        }
+        if name == "ORIGIN" {
+            return Ok(Expr::Literal(self.default_origin));
+        }
+        Value::constant(&name)
+            .map(Expr::Literal)
+            .ok_or_else(|| format!("неизвестное имя {name}"))
+    }
+
+    fn compile_calculus(
+        &mut self,
+        operator: &str,
+        args: &[Xml<'_, '_>],
+        params: &[String],
+        locals: &mut Vec<String>,
+        depth: usize,
+    ) -> Calc<Expr> {
+        let (lambda, limit) = match args {
+            [lambda] => (*lambda, None),
+            [lambda, limit] => (*lambda, Some(*limit)),
+            _ => return Err(format!("{operator}: неверное число полей оператора")),
+        };
+        if !named(lambda, ML, "lambda") {
+            return Err(format!(
+                "{operator}: ожидается выражение с переменной оператора"
+            ));
+        }
+        let mut parts = elements(lambda);
+        let variables = parts
+            .next()
+            .filter(|&node| named(node, ML, "boundVars"))
+            .ok_or_else(|| format!("{operator}: отсутствует переменная оператора"))?;
+        let mut variables = elements(variables);
+        let variable = identifier(variables.next().ok_or("не задана переменная оператора")?)?;
+        let body = parts.next().ok_or("оператор без выражения")?;
+        if variables.next().is_some() || parts.next().is_some() {
+            return Err(format!(
+                "{operator}: поддерживается одна переменная и одно выражение"
+            ));
+        }
+
+        // Limits and the differentiation point belong to the enclosing expression.
+        let domain = if operator == "derivative" {
+            if let Some(degree) = limit {
+                let mut values = elements(degree);
+                if !named(degree, ML, "degree")
+                    || !values
+                        .next()
+                        .filter(|&value| named(value, ML, "real"))
+                        .is_some_and(|value| real(value) == Ok(1.))
+                    || values.next().is_some()
+                {
+                    return Err("поддерживается только производная первого порядка".into());
+                }
+            }
+            CalculusDomain::Derivative(self.resolve_name(variable.clone(), params, locals)?)
+        } else {
+            let bounds = limit
+                .filter(|&node| named(node, ML, "bounds"))
+                .ok_or_else(|| format!("{operator}: нужны явные нижняя и верхняя границы"))?;
+            let mut limits = elements(bounds);
+            let first = limits.next().ok_or("не задана нижняя граница")?;
+            let second = limits.next().ok_or("не задана верхняя граница")?;
+            if limits.next().is_some() {
+                return Err("ожидаются две границы оператора".into());
+            }
+            let interval = [
+                self.compile(first, params, locals, depth + 1)?,
+                self.compile(second, params, locals, depth + 1)?,
+            ];
+            match operator {
+                "integral" => CalculusDomain::Integral(interval),
+                "summation" => CalculusDomain::Sum(interval),
+                "product" => CalculusDomain::Product(interval),
+                _ => unreachable!("unknown calculus operator"),
+            }
+        };
+
+        locals.push(variable.clone());
+        let body = self.compile(body, params, locals, depth + 1);
+        locals.pop();
+        Ok(Expr::Calculus(Box::new(CalculusExpr {
+            domain,
+            variable,
+            body: body?,
+        })))
     }
 
     pub fn definition(&mut self, target: Target<'_, '_>, node: Xml<'_, '_>) -> Calc<Expr> {
@@ -422,24 +571,7 @@ impl Compiler<'_> {
         }
         match kind(node) {
             "real" | "imag" | "complex" => Ok(Expr::Literal(scalar(node)?)),
-            "id" => {
-                let name = identifier(node)?;
-                if locals.contains(&name) {
-                    return Ok(Expr::Local(name));
-                }
-                if let Some(i) = params.iter().position(|p| p == &name) {
-                    return Ok(Expr::Param(i));
-                }
-                if let Some(index) = self.reference(&name) {
-                    return Ok(Expr::Ref(index));
-                }
-                if name == "ORIGIN" {
-                    return Ok(self.origin());
-                }
-                Value::constant(&name)
-                    .map(Expr::Literal)
-                    .ok_or_else(|| format!("неизвестное имя {name}"))
-            }
+            "id" => self.resolve_name(identifier(node)?, params, locals),
             "parens" | "eval" => {
                 let child = elements(node).next().ok_or("пустое выражение")?;
                 self.compile(child, params, locals, depth + 1)
@@ -473,6 +605,10 @@ impl Compiler<'_> {
                 let args = expand_sequence(children);
                 if args.len() > 32 {
                     return Err("слишком много аргументов".into());
+                }
+                let tag = kind(operator);
+                if matches!(tag, "derivative" | "integral" | "summation" | "product") {
+                    return self.compile_calculus(tag, &args, params, locals, depth);
                 }
                 if named(operator, ML, "indexer") {
                     let (array, indices) = args.split_first().ok_or("нет массива")?;

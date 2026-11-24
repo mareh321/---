@@ -602,8 +602,24 @@ pub enum Expr {
     Index(Box<Expr>, Vec<Expr>, Box<Expr>),
     Assign(Box<IndexedAssignment>),
     Program(Vec<Stmt>),
+    Calculus(Box<CalculusExpr>),
     Symbolic(Box<crate::symbolic::SymExpr>, Vec<(String, usize)>),
     SolveBlock(Box<SolveBlockExpr>),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct CalculusExpr {
+    pub variable: String,
+    pub body: Expr,
+    pub domain: CalculusDomain,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CalculusDomain {
+    Derivative(Expr),
+    Integral([Expr; 2]),
+    Sum([Expr; 2]),
+    Product([Expr; 2]),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -819,6 +835,19 @@ impl Expr {
                     stmt.shift_refs(offset);
                 }
             }
+            Self::Calculus(calc) => {
+                calc.body.shift_refs(offset);
+                match &mut calc.domain {
+                    CalculusDomain::Derivative(point) => point.shift_refs(offset),
+                    CalculusDomain::Integral(limits)
+                    | CalculusDomain::Sum(limits)
+                    | CalculusDomain::Product(limits) => {
+                        for limit in limits {
+                            limit.shift_refs(offset);
+                        }
+                    }
+                }
+            }
             Self::Symbolic(_, bindings) => {
                 for (_, idx) in bindings {
                     *idx += offset;
@@ -966,7 +995,38 @@ impl Expr {
                 let result = crate::symbolic::eval_symbolic(sym, &env)?;
                 Ok(Datum::Symbolic(Arc::new(result)))
             }
+            Self::Calculus(calc) => Ok(calc.evaluate(ctx)?.into()),
             Self::SolveBlock(sb) => eval_solve_block(sb, ctx),
+        }
+    }
+}
+
+impl CalculusExpr {
+    fn evaluate(&self, ctx: &Context<'_>) -> Calc<Value> {
+        let mut locals = ctx.locals.to_vec();
+        let sample_index = locals.len();
+        locals.push((self.variable.clone(), Value::scalar(0.)?.into()));
+        let mut sample = |value: Value| {
+            locals[sample_index].1 = value.into();
+            self.body
+                .evaluate(&Context {
+                    locals: &locals,
+                    ..*ctx
+                })?
+                .scalar()
+        };
+        let scalar = |expr: &Expr| expr.evaluate(ctx)?.scalar();
+        match &self.domain {
+            CalculusDomain::Derivative(point) => numeric_diff(&mut sample, scalar(point)?),
+            CalculusDomain::Integral([start, end]) => {
+                numeric_integ(&mut sample, scalar(start)?, scalar(end)?, ctx)
+            }
+            CalculusDomain::Sum([start, end]) => {
+                indexed_fold(&mut sample, scalar(start)?, scalar(end)?, "plus", ctx)
+            }
+            CalculusDomain::Product([start, end]) => {
+                indexed_fold(&mut sample, scalar(start)?, scalar(end)?, "mult", ctx)
+            }
         }
     }
 }
@@ -986,20 +1046,20 @@ fn call_unary(function: &Function, x: Value, ctx: &Context<'_>) -> Calc<Value> {
         .scalar()
 }
 
-fn numeric_diff(function: &Function, x0: Value, ctx: &Context<'_>) -> Calc<Value> {
+fn numeric_diff(sample: &mut impl FnMut(Value) -> Calc<Value>, x0: Value) -> Calc<Value> {
     if x0.imaginary != 0. {
         return Err("diff требует действительную точку дифференцирования".into());
     }
     let h = (x0.number.abs() * 1e-4).max(1e-5);
     let h_val = x0.with_number(h)?;
     let h2_val = x0.with_number(h * 0.5)?;
-    let f_plus = call_unary(function, x0.with_number(x0.number + h)?, ctx)?;
-    let f_minus = call_unary(function, x0.with_number(x0.number - h)?, ctx)?;
+    let f_plus = sample(x0.with_number(x0.number + h)?)?;
+    let f_minus = sample(x0.with_number(x0.number - h)?)?;
     let d1 = f_plus
         .binary("minus", f_minus)?
         .binary("div", h_val.multiply_number(2.)?)?;
-    let f_plus2 = call_unary(function, x0.with_number(x0.number + h * 0.5)?, ctx)?;
-    let f_minus2 = call_unary(function, x0.with_number(x0.number - h * 0.5)?, ctx)?;
+    let f_plus2 = sample(x0.with_number(x0.number + h * 0.5)?)?;
+    let f_minus2 = sample(x0.with_number(x0.number - h * 0.5)?)?;
     let d2 = f_plus2
         .binary("minus", f_minus2)?
         .binary("div", h2_val.multiply_number(2.)?)?;
@@ -1008,7 +1068,12 @@ fn numeric_diff(function: &Function, x0: Value, ctx: &Context<'_>) -> Calc<Value
         .multiply_number(1. / 3.)
 }
 
-fn numeric_integ(function: &Function, a: Value, b: Value, ctx: &Context<'_>) -> Calc<Value> {
+fn numeric_integ(
+    sample: &mut impl FnMut(Value) -> Calc<Value>,
+    a: Value,
+    b: Value,
+    ctx: &Context<'_>,
+) -> Calc<Value> {
     if a.imaginary != 0. || b.imaginary != 0. || !a.compatible(b) {
         return Err(
             "integ: пределы интегрирования должны быть действительными величинами одной размерности"
@@ -1016,7 +1081,7 @@ fn numeric_integ(function: &Function, a: Value, b: Value, ctx: &Context<'_>) -> 
         );
     }
     if a.number == b.number {
-        let fa = call_unary(function, a, ctx)?;
+        let fa = sample(a)?;
         return fa.binary("mult", b.binary("minus", a)?);
     }
     // Composite 4-point Gauss-Legendre quadrature over 32 subintervals (128 evaluations)
@@ -1041,7 +1106,7 @@ fn numeric_integ(function: &Function, a: Value, b: Value, ctx: &Context<'_>) -> 
         let mid = a.number + (panel as f64 + 0.5) * step;
         for (&node, &weight) in NODES.iter().zip(&WEIGHTS) {
             let x = a.with_number(mid + half * node)?;
-            let fx = call_unary(function, x, ctx)?;
+            let fx = sample(x)?;
             let term = fx.binary("mult", a.with_number(half * weight)?)?;
             acc = Some(match acc {
                 Some(sum) => sum.binary("plus", term)?,
@@ -1053,7 +1118,7 @@ fn numeric_integ(function: &Function, a: Value, b: Value, ctx: &Context<'_>) -> 
 }
 
 fn indexed_fold(
-    function: &Function,
+    sample: &mut impl FnMut(Value) -> Calc<Value>,
     start: Value,
     end: Value,
     op: &str,
@@ -1070,9 +1135,9 @@ fn indexed_fold(
     }
     let count = count as usize;
     ctx.spend(count)?;
-    let mut acc = call_unary(function, Value::scalar(s)?, ctx)?;
+    let mut acc = sample(Value::scalar(s)?)?;
     for step in 1..count {
-        let term = call_unary(function, Value::scalar(s + step as f64)?, ctx)?;
+        let term = sample(Value::scalar(s + step as f64)?)?;
         acc = acc.binary(op, term)?;
     }
     Ok(acc)
@@ -2434,15 +2499,17 @@ fn builtin(op: &str, args: &[Datum], ctx: &Context<'_>) -> Calc<Datum> {
             Ok(Datum::Matrix(Arc::new(a.augment(b)?)))
         }
         ("stack", [Datum::Matrix(a), Datum::Matrix(b)]) => Ok(Datum::Matrix(Arc::new(a.stack(b)?))),
-        ("diff", [Datum::Function(f), Datum::Scalar(x0)]) => Ok(numeric_diff(f, *x0, ctx)?.into()),
+        ("diff", [Datum::Function(f), Datum::Scalar(x0)]) => {
+            Ok(numeric_diff(&mut |x| call_unary(f, x, ctx), *x0)?.into())
+        }
         ("integ", [Datum::Function(f), Datum::Scalar(a), Datum::Scalar(b)]) => {
-            Ok(numeric_integ(f, *a, *b, ctx)?.into())
+            Ok(numeric_integ(&mut |x| call_unary(f, x, ctx), *a, *b, ctx)?.into())
         }
         ("isum", [Datum::Function(f), Datum::Scalar(a), Datum::Scalar(b)]) => {
-            Ok(indexed_fold(f, *a, *b, "plus", ctx)?.into())
+            Ok(indexed_fold(&mut |x| call_unary(f, x, ctx), *a, *b, "plus", ctx)?.into())
         }
         ("iprod", [Datum::Function(f), Datum::Scalar(a), Datum::Scalar(b)]) => {
-            Ok(indexed_fold(f, *a, *b, "mult", ctx)?.into())
+            Ok(indexed_fold(&mut |x| call_unary(f, x, ctx), *a, *b, "mult", ctx)?.into())
         }
         ("root", [Datum::Function(f), Datum::Scalar(guess)]) => {
             Ok(solve_root_guess(f, *guess, ctx)?.into())

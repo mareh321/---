@@ -5400,6 +5400,40 @@ mod tests {
     }
 
     #[test]
+    fn mathcad_calculus_recalculates_and_survives_saving_a_copy() {
+        let original = include_str!("../fixtures/mathcad15-calculus.xmcd");
+        let mut doc = Worksheet::load(original, "Mathcad 15".into(), None).unwrap();
+        let report = doc.sheet.verify_snapshots_report();
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.matched, 4);
+
+        doc.update_input(doc.by_id("1").unwrap(), Some(4.)).unwrap();
+        let copy = doc.export().unwrap();
+        for operator in ["derivative", "integral", "summation", "product"] {
+            assert!(copy.contains(&format!("<ml:{operator}")));
+        }
+        let xml = roxmltree::Document::parse(&copy).unwrap();
+        assert!(!xml
+            .descendants()
+            .any(|node| node.has_tag_name(("http://schemas.mathsoft.com/math30", "result"))));
+        let reopened = Worksheet::load(&copy, "Копия".into(), None).unwrap();
+        for (id, result) in [
+            ("7", "8 m"),
+            ("8", "21.333333 m^3"),
+            ("9", "30"),
+            ("10", "120"),
+        ] {
+            assert_eq!(
+                reopened
+                    .sheet
+                    .display_with_precision(reopened.by_id(id).unwrap(), Some(8))
+                    .unwrap(),
+                result
+            );
+        }
+    }
+
+    #[test]
     fn formula_dialog_applies_a_draft_with_ctrl_enter() {
         let ctx = egui::Context::default();
         let mut app = Workbench::new(&ctx, None).unwrap();

@@ -1617,6 +1617,42 @@ mod tests {
     }
 
     #[test]
+    fn native_calculus_preserves_outer_bindings() {
+        let xml = r#"
+            <worksheet xmlns="http://schemas.mathsoft.com/worksheet30"
+                       xmlns:m="http://schemas.mathsoft.com/math30">
+              <regions>
+                <region top="1"><math><m:define><m:id>j</m:id><m:real>3</m:real></m:define></math></region>
+                <region top="2"><math><m:define>
+                  <m:function><m:id>f</m:id><m:boundVars><m:id>p</m:id></m:boundVars></m:function>
+                  <m:apply><m:summation/>
+                    <m:lambda><m:boundVars><m:id>j</m:id></m:boundVars>
+                      <m:apply><m:derivative/>
+                        <m:lambda><m:boundVars><m:id>j</m:id></m:boundVars>
+                          <m:apply><m:mult/><m:id>p</m:id>
+                            <m:apply><m:pow/><m:id>j</m:id><m:real>2</m:real></m:apply>
+                          </m:apply>
+                        </m:lambda>
+                      </m:apply>
+                    </m:lambda>
+                    <m:bounds><m:real>1</m:real><m:id>j</m:id></m:bounds>
+                  </m:apply>
+                </m:define></math></region>
+                <region top="3"><math><m:eval>
+                  <m:apply><m:id>f</m:id><m:real>2</m:real></m:apply>
+                </m:eval></math></region>
+                <region top="4"><math><m:eval><m:real>42</m:real></m:eval></math></region>
+              </regions>
+            </worksheet>"#;
+        let mut sheet = Sheet::import(xml).unwrap();
+        assert_eq!(sheet.full(), 4);
+        assert_eq!(sheet.display_with_precision(2, Some(8)).unwrap(), "24");
+        sheet.set(0, Some(4.), None).unwrap();
+        assert_eq!(sheet.incremental(), 3);
+        assert_eq!(sheet.display_with_precision(2, Some(8)).unwrap(), "40");
+    }
+
+    #[test]
     fn sorts_aligned_regions_and_keeps_prior_bindings() {
         let mut sheet = Sheet::import(r#"
             <worksheet xmlns="http://schemas.mathsoft.com/worksheet30"
