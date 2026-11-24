@@ -3,7 +3,7 @@ use eframe::egui::{
     self, vec2, Align, Align2, Color32, CornerRadius, FontId, Frame, Key, Margin, Painter, Pos2,
     Rect, RichText, Sense, Shape, Stroke, StrokeKind, TextEdit,
 };
-use list_rs::math_editor::BigOpKind;
+use list_rs::math_editor::{BigOpKind, ProgramCommand};
 
 pub const SHELL_BG: Color32 = Color32::from_rgb(15, 25, 42);
 pub const PANEL_DARK: Color32 = Color32::from_rgb(20, 33, 56);
@@ -1107,13 +1107,24 @@ pub const TOOLS: &[ToolItem] = &[
     ToolItem {
         id: "prog.if",
         group: PaletteTab::Program,
-        name: "Ветвление if(cond, a, b)",
+        name: "Условие if",
         short_label: "",
-        tooltip: "Ветвление if(cond, a, b)",
+        tooltip: "Условие и действие при его выполнении. Tab — переход к действию.",
         shortcut: None,
         icon: ToolIcon::Badge("if"),
         synonyms: &["ветвление", "условие", "если", "if"],
-        action: ToolAction::Math(PaletteAction::Call("if")),
+        action: ToolAction::Math(PaletteAction::ProgramCommand(ProgramCommand::If)),
+    },
+    ToolItem {
+        id: "prog.if_else",
+        group: PaletteTab::Program,
+        name: "Ветвление if / otherwise",
+        short_label: "",
+        tooltip: "Условие, действие при «да», действие при «нет». Tab — переход между полями.",
+        shortcut: None,
+        icon: ToolIcon::Badge("if/else"),
+        synonyms: &["ветвление", "иначе", "otherwise", "else"],
+        action: ToolAction::Math(PaletteAction::ProgramCommand(ProgramCommand::IfElse)),
     },
     ToolItem {
         id: "prog.for",
@@ -1124,7 +1135,7 @@ pub const TOOLS: &[ToolItem] = &[
         shortcut: None,
         icon: ToolIcon::Badge("for"),
         synonyms: &["цикл", "for", "перебор"],
-        action: ToolAction::Math(PaletteAction::Call("for")),
+        action: ToolAction::Math(PaletteAction::ProgramCommand(ProgramCommand::For)),
     },
     ToolItem {
         id: "prog.while",
@@ -1135,7 +1146,7 @@ pub const TOOLS: &[ToolItem] = &[
         shortcut: None,
         icon: ToolIcon::Badge("while"),
         synonyms: &["цикл", "пока", "while"],
-        action: ToolAction::Math(PaletteAction::Call("while")),
+        action: ToolAction::Math(PaletteAction::ProgramCommand(ProgramCommand::While)),
     },
     ToolItem {
         id: "prog.return",
@@ -1146,7 +1157,29 @@ pub const TOOLS: &[ToolItem] = &[
         shortcut: None,
         icon: ToolIcon::Badge("ret"),
         synonyms: &["возврат", "вернуть", "return"],
-        action: ToolAction::Math(PaletteAction::Call("return")),
+        action: ToolAction::Math(PaletteAction::ProgramCommand(ProgramCommand::Return)),
+    },
+    ToolItem {
+        id: "prog.break",
+        group: PaletteTab::Program,
+        name: "Выйти из цикла",
+        short_label: "",
+        tooltip: "Завершить ближайший цикл",
+        shortcut: None,
+        icon: ToolIcon::Badge("break"),
+        synonyms: &["прервать цикл", "выход из цикла", "break"],
+        action: ToolAction::Math(PaletteAction::Raw("break()")),
+    },
+    ToolItem {
+        id: "prog.continue",
+        group: PaletteTab::Program,
+        name: "Перейти к следующей итерации",
+        short_label: "",
+        tooltip: "Пропустить остаток текущей итерации цикла",
+        shortcut: None,
+        icon: ToolIcon::Badge("next"),
+        synonyms: &["итерация", "продолжить цикл", "continue"],
+        action: ToolAction::Math(PaletteAction::Raw("continue()")),
     },
     ToolItem {
         id: "prog.odesolve",

@@ -2,7 +2,7 @@ use eframe::egui::{
     self, vec2, Color32, Event, FontId, Key, Painter, Pos2, Rect, Stroke, StrokeKind,
 };
 use list_rs::math_editor::{
-    BigOpKind, Cursor, MathEditor, MathItem, MathSlot, SlotPart, SubscriptKind,
+    BigOpKind, Cursor, MathEditor, MathItem, MathSlot, ProgramCommand, SlotPart, SubscriptKind,
 };
 
 #[derive(Clone, Copy)]
@@ -51,6 +51,7 @@ pub enum PaletteAction {
     BigOp(BigOpKind),
     Derivative,
     Program(usize),
+    ProgramCommand(ProgramCommand),
     AddProgramLine,
     Matrix(usize, usize),
     Call(&'static str),
@@ -69,6 +70,7 @@ impl PaletteAction {
             Self::BigOp(k) => editor.insert_big_op(k),
             Self::Derivative => editor.insert_derivative(),
             Self::Program(n) => editor.insert_program(n),
+            Self::ProgramCommand(command) => editor.insert_program_command(command),
             Self::AddProgramLine => editor.add_program_line(),
             Self::Matrix(r, c) => editor.insert_matrix(r, c),
             Self::Call(name) => editor.insert_call_template(name),
@@ -178,6 +180,14 @@ pub fn measure_slot(
     }
 }
 
+fn program_label(command: ProgramCommand, index: usize, arg_count: usize) -> String {
+    match index {
+        0 => format!("{}(", command.name()),
+        index if index == arg_count => ")".into(),
+        _ => ", ".into(),
+    }
+}
+
 fn measure_item(painter: &Painter, item: &MathItem, font_size: f32, interactive: bool) -> Metrics {
     match item {
         MathItem::Char(c) => {
@@ -275,6 +285,30 @@ fn measure_item(painter: &Painter, item: &MathItem, font_size: f32, interactive:
                 ascent: op_asc.max(fm.ascent),
                 descent: op_desc.max(fm.descent).max(font_size * 0.28 + pm.descent),
             }
+        }
+        MathItem::ProgramCommand { command, args } => {
+            let mut metrics = Metrics {
+                width: 0.0,
+                ascent: font_size * 0.78,
+                descent: font_size * 0.24,
+            };
+            for index in 0..=args.len() {
+                metrics.width += painter
+                    .layout_no_wrap(
+                        program_label(*command, index, args.len()),
+                        FontId::proportional(font_size),
+                        Color32::BLACK,
+                    )
+                    .rect
+                    .width();
+                if let Some(arg) = args.get(index) {
+                    let arg_metrics = measure_slot(painter, arg, font_size, interactive);
+                    metrics.width += arg_metrics.width;
+                    metrics.ascent = metrics.ascent.max(arg_metrics.ascent);
+                    metrics.descent = metrics.descent.max(arg_metrics.descent);
+                }
+            }
+            metrics
         }
         MathItem::Program { lines } => {
             let inner = sub_font(font_size, 0.92);
@@ -802,13 +836,47 @@ fn paint_slot(
                 );
                 path.pop();
             }
+            MathItem::ProgramCommand { command, args } => {
+                let mut arg_x = cur_x;
+                for arg_index in 0..=args.len() {
+                    let color = if arg_index == 0 {
+                        style.index_color
+                    } else {
+                        style.ink
+                    };
+                    let label = painter.layout_no_wrap(
+                        program_label(*command, arg_index, args.len()),
+                        FontId::proportional(font_size),
+                        color,
+                    );
+                    let label_width = label.rect.width();
+                    painter.galley(Pos2::new(arg_x, baseline - font_size * 0.80), label, color);
+                    arg_x += label_width;
+                    if let Some(arg) = args.get(arg_index) {
+                        path.push((index, SlotPart::Cell(arg_index)));
+                        paint_slot(
+                            painter,
+                            arg_x,
+                            baseline,
+                            arg,
+                            font_size,
+                            style,
+                            cursor,
+                            path,
+                            hits,
+                            interactive,
+                        );
+                        path.pop();
+                        arg_x += measure_slot(painter, arg, font_size, interactive).width;
+                    }
+                }
+            }
             MathItem::Program { lines } => {
                 let inner_f = sub_font(font_size, 0.92);
                 let row_gap = 4.0;
                 let top_y = baseline - m.ascent + 1.0;
                 let bot_y = baseline + m.descent - 1.0;
                 let bar_x = cur_x + 3.5;
-                // Signature Mathcad 15 vertical program bar
                 painter.line_segment(
                     [Pos2::new(bar_x, top_y), Pos2::new(bar_x, bot_y)],
                     Stroke::new(2.2_f32, style.ink),

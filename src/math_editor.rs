@@ -37,6 +37,45 @@ pub enum SlotPart {
     Cell(usize),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProgramCommand {
+    If,
+    IfElse,
+    For,
+    While,
+    Return,
+}
+
+impl ProgramCommand {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::If | Self::IfElse => "if",
+            Self::For => "for",
+            Self::While => "while",
+            Self::Return => "return",
+        }
+    }
+
+    fn arg_count(self) -> usize {
+        match self {
+            Self::If | Self::While => 2,
+            Self::IfElse | Self::For => 3,
+            Self::Return => 1,
+        }
+    }
+
+    fn from_call(name: &str, arg_count: usize) -> Option<Self> {
+        match (name, arg_count) {
+            ("if", 2) => Some(Self::If),
+            ("if", 3) => Some(Self::IfElse),
+            ("for", 3) => Some(Self::For),
+            ("while", 2) => Some(Self::While),
+            ("return", 1) => Some(Self::Return),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MathItem {
     Char(char),
@@ -68,6 +107,10 @@ pub enum MathItem {
     Program {
         lines: Vec<MathSlot>,
     },
+    ProgramCommand {
+        command: ProgramCommand,
+        args: Vec<MathSlot>,
+    },
     Matrix {
         rows: usize,
         cols: usize,
@@ -91,7 +134,10 @@ impl MathItem {
             (Self::Derivative { func, .. }, SlotPart::First) => Some(func),
             (Self::Derivative { point, .. }, SlotPart::Second) => Some(point),
             (Self::Program { lines }, SlotPart::Cell(idx)) => lines.get(idx),
-            (Self::Matrix { cells, .. }, SlotPart::Cell(idx)) => cells.get(idx),
+            (
+                Self::Matrix { cells, .. } | Self::ProgramCommand { args: cells, .. },
+                SlotPart::Cell(idx),
+            ) => cells.get(idx),
             _ => None,
         }
     }
@@ -111,7 +157,10 @@ impl MathItem {
             (Self::Derivative { func, .. }, SlotPart::First) => Some(func),
             (Self::Derivative { point, .. }, SlotPart::Second) => Some(point),
             (Self::Program { lines }, SlotPart::Cell(idx)) => lines.get_mut(idx),
-            (Self::Matrix { cells, .. }, SlotPart::Cell(idx)) => cells.get_mut(idx),
+            (
+                Self::Matrix { cells, .. } | Self::ProgramCommand { args: cells, .. },
+                SlotPart::Cell(idx),
+            ) => cells.get_mut(idx),
             _ => None,
         }
     }
@@ -119,6 +168,7 @@ impl MathItem {
     pub fn first_part(&self) -> Option<SlotPart> {
         match self {
             Self::Char(_) => None,
+            Self::ProgramCommand { .. } => Some(SlotPart::Cell(0)),
             Self::Matrix { cells, .. } if !cells.is_empty() => Some(SlotPart::Cell(0)),
             Self::Program { lines } if !lines.is_empty() => Some(SlotPart::Cell(0)),
             Self::Matrix { .. } | Self::Program { .. } => None,
@@ -134,6 +184,7 @@ impl MathItem {
             Self::Matrix { cells, .. } if !cells.is_empty() => {
                 Some(SlotPart::Cell(cells.len() - 1))
             }
+            Self::ProgramCommand { args, .. } => args.len().checked_sub(1).map(SlotPart::Cell),
             Self::Program { lines } if !lines.is_empty() => Some(SlotPart::Cell(lines.len() - 1)),
             Self::Matrix { .. } | Self::Program { .. } => None,
             _ => Some(SlotPart::Second),
@@ -151,9 +202,10 @@ impl MathItem {
                 SlotPart::First,
             ) => Some(SlotPart::Second),
             (Self::BigOp { .. }, SlotPart::Second) => Some(SlotPart::Third),
-            (Self::Matrix { cells, .. }, SlotPart::Cell(idx)) if idx + 1 < cells.len() => {
-                Some(SlotPart::Cell(idx + 1))
-            }
+            (
+                Self::Matrix { cells, .. } | Self::ProgramCommand { args: cells, .. },
+                SlotPart::Cell(idx),
+            ) if idx + 1 < cells.len() => Some(SlotPart::Cell(idx + 1)),
             (Self::Program { lines }, SlotPart::Cell(idx)) if idx + 1 < lines.len() => {
                 Some(SlotPart::Cell(idx + 1))
             }
@@ -172,9 +224,10 @@ impl MathItem {
                 SlotPart::Second,
             ) => Some(SlotPart::First),
             (Self::BigOp { .. }, SlotPart::Third) => Some(SlotPart::Second),
-            (Self::Matrix { .. } | Self::Program { .. }, SlotPart::Cell(idx)) if idx > 0 => {
-                Some(SlotPart::Cell(idx - 1))
-            }
+            (
+                Self::Matrix { .. } | Self::Program { .. } | Self::ProgramCommand { .. },
+                SlotPart::Cell(idx),
+            ) if idx > 0 => Some(SlotPart::Cell(idx - 1)),
             _ => None,
         }
     }
@@ -195,6 +248,7 @@ impl MathItem {
             } => lower.items.is_empty() && upper.items.is_empty() && func.items.is_empty(),
             Self::Derivative { func, point } => func.items.is_empty() && point.items.is_empty(),
             Self::Program { lines } => lines.iter().all(MathSlot::is_empty),
+            Self::ProgramCommand { args, .. } => args.iter().all(MathSlot::is_empty),
             Self::Matrix { cells, .. } => cells.iter().all(MathSlot::is_empty),
         }
     }
@@ -279,6 +333,17 @@ impl MathSlot {
                         func.to_source().trim(),
                         point.to_source().trim()
                     ));
+                }
+                MathItem::ProgramCommand { command, args } => {
+                    out.push_str(command.name());
+                    out.push('(');
+                    for (index, arg) in args.iter().enumerate() {
+                        if index > 0 {
+                            out.push_str(", ");
+                        }
+                        out.push_str(arg.to_source().trim());
+                    }
+                    out.push(')');
                 }
                 MathItem::Program { lines } => {
                     let body = lines
@@ -740,6 +805,20 @@ impl MathEditor {
         self.insert_program(2);
     }
 
+    pub fn insert_program_command(&mut self, command: ProgramCommand) {
+        self.clamp_cursor();
+        let offset = self.cursor.offset;
+        self.current_slot_mut().items.insert(
+            offset,
+            MathItem::ProgramCommand {
+                command,
+                args: vec![MathSlot::default(); command.arg_count()],
+            },
+        );
+        self.cursor.path.push((offset, SlotPart::Cell(0)));
+        self.cursor.offset = 0;
+    }
+
     pub fn insert_call_template(&mut self, name: &str) {
         self.clamp_cursor();
         let mut offset = self.cursor.offset;
@@ -967,7 +1046,10 @@ impl MathEditor {
             .is_some_and(|item| {
                 matches!(
                     item,
-                    MathItem::Matrix { .. } | MathItem::BigOp { .. } | MathItem::Derivative { .. }
+                    MathItem::Matrix { .. }
+                        | MathItem::BigOp { .. }
+                        | MathItem::Derivative { .. }
+                        | MathItem::ProgramCommand { .. }
                 )
             });
         if is_multi_slot {
@@ -1382,6 +1464,17 @@ impl SourceParser {
                                 self.parse_delimited_into(')', &mut node.items);
                             }
                         }
+                        "if" | "for" | "while" | "return" => {
+                            let saved = self.pos;
+                            let args = self.parse_arg_list(',');
+                            if let Some(command) = ProgramCommand::from_call(fname, args.len()) {
+                                node.items = vec![MathItem::ProgramCommand { command, args }];
+                            } else {
+                                self.pos = saved;
+                                node.items.push(MathItem::Char('('));
+                                self.parse_delimited_into(')', &mut node.items);
+                            }
+                        }
                         "prog" => {
                             let lines = self.parse_arg_list(';');
                             let lines = if lines.is_empty() {
@@ -1788,6 +1881,53 @@ mod tests {
         assert!(prog
             .to_source()
             .contains("prog(s <- 0; v[0] <- n; return(s))"));
+    }
+
+    #[test]
+    fn edits_structured_program_arguments_and_reopens_the_saved_formula() {
+        let mut editor = MathEditor::empty();
+        editor.insert_raw("f(x) := ");
+        editor.insert_program(1);
+        editor.insert_program_command(ProgramCommand::IfElse);
+        editor.insert_raw("x > 0");
+        editor.move_next_slot(false);
+        editor.insert_program_command(ProgramCommand::Return);
+        editor.insert_raw("x");
+        editor.move_next_slot(false);
+        editor.move_next_slot(false);
+        editor.insert_program_command(ProgramCommand::Return);
+        editor.insert_raw("-x");
+
+        let source = editor.to_source();
+        assert_eq!(source, "f(x) := prog(if(x > 0, return(x), return(-x)))");
+        let blank = include_str!("../examples/blank.xmcd");
+        let (xml, _) = insert_region(blank, 12., 10., NewRegion::Formula(&source)).unwrap();
+        let (xml, id) = insert_region(&xml, 12., 90., NewRegion::Formula("f(-3) =")).unwrap();
+        let exported = export_xml(&xml, true).unwrap();
+        assert!(exported.contains("<ml:otherwise>"));
+        let mut sheet = Sheet::import(&exported).unwrap();
+        sheet.full();
+        let idx = sheet
+            .regions
+            .iter()
+            .position(|r| r.source_id == id)
+            .unwrap();
+        assert_eq!(sheet.display(idx).unwrap(), "3");
+
+        let mut reopened = MathEditor::from_source(&source);
+        let path = editor.cursor.path.clone();
+        reopened.set_cursor(path.clone(), 2);
+        assert_eq!(reopened.cursor.path, path);
+        reopened.backspace();
+        reopened.insert_raw("x + 1");
+        assert_eq!(
+            reopened.to_source(),
+            "f(x) := prog(if(x > 0, return(x), return(-x + 1)))"
+        );
+        reopened.move_next_slot(false);
+        assert_eq!(reopened.cursor.path, path[..path.len() - 1]);
+        reopened.move_left();
+        assert_eq!(reopened.cursor.path, path);
     }
 
     #[test]
