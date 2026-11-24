@@ -15,6 +15,8 @@ pub mod plot;
 mod presentation;
 #[cfg(feature = "mcp")]
 pub mod report;
+#[cfg(feature = "mcp")]
+pub mod rich_text;
 pub mod sheet;
 pub mod symbolic;
 mod value;

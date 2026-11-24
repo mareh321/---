@@ -338,7 +338,7 @@ pub fn paint_editor(
     style: Style,
     click_pos: Option<Pos2>,
     show_caret: bool,
-) -> Metrics {
+) -> Option<Rect> {
     let m = measure_slot(painter, &editor.root, style.font_size, true);
     let baseline = origin.y + m.ascent;
     let mut hits = Vec::new();
@@ -377,7 +377,9 @@ pub fn paint_editor(
             editor.set_cursor(target.path.clone(), target.offset);
         }
     }
-    m
+    hits.iter()
+        .find(|target| target.path == editor.cursor.path && target.offset == editor.cursor.offset)
+        .map(|target| target.rect)
 }
 
 #[allow(clippy::too_many_arguments)]

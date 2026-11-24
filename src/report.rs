@@ -616,6 +616,34 @@ p.txt {{ font-size: 13px; line-height: 1.45; margin: 6px 0; color: #364d59; whit
             if let Some(text) = &region.text {
                 if region.visual.graphical {
                     let _ = write!(html, "<div class=\"chart-err\">{}</div>", escape_html(text));
+                } else if let Some(rich) = &region.visual.rich_text {
+                    let tag = match region.visual.heading {
+                        1 => "h1",
+                        2 => "h2",
+                        _ => "p",
+                    };
+                    let _ = write!(
+                        html,
+                        "<{tag} class=\"txt\" style=\"white-space:pre-wrap;text-align:{}\">",
+                        rich.alignment.name()
+                    );
+                    for (text, format) in rich.runs() {
+                        let font = format.font.name();
+                        let size = format.size;
+                        let weight = if format.bold { "bold" } else { "normal" };
+                        let slant = if format.italic { "italic" } else { "normal" };
+                        let underline = if format.underline {
+                            "underline"
+                        } else {
+                            "none"
+                        };
+                        let _ = write!(
+                            html,
+                            "<span style=\"font-family:'{font}';font-size:{size}pt;font-weight:{weight};font-style:{slant};text-decoration:{underline}\">{}</span>",
+                            escape_html(text)
+                        );
+                    }
+                    let _ = write!(html, "</{tag}>");
                 } else if let Some(format) = region.visual.text_format {
                     let (tag, class) = match region.visual.heading {
                         1 => ("h1", ""),

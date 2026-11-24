@@ -9,6 +9,7 @@ pub struct RegionVisual {
     pub height: f32,
     pub heading: u8,
     pub text_format: Option<TextFormat>,
+    pub rich_text: Option<crate::rich_text::RichText>,
     pub formula: String,
     pub input_unit: Option<String>,
     pub graphical: bool,
@@ -42,6 +43,12 @@ impl RegionVisual {
             .unwrap_or_default();
         self.heading = text_heading(style);
         self.text_format = region_text_format(text);
+        if self.text_format.is_none() {
+            self.rich_text = crate::rich_text::RichText::from_xml(text);
+            if let Some(rich) = &self.rich_text {
+                return rich.body.clone();
+            }
+        }
         let line = |paragraph: Xml<'_, '_>| {
             paragraph
                 .descendants()

@@ -13,8 +13,9 @@ use eframe::egui::{
 use list_rs::{
     data_io, display_number, editing,
     editing::{TextAlignment, TextFont, TextFormat},
-    math_editor::{parse_source_to_slot, MathEditor},
+    math_editor::{parse_source_to_slot, Cursor, MathEditor},
     number, read_xml, report,
+    rich_text::RichText as StyledText,
     sheet::Sheet,
     Calc,
 };
@@ -41,7 +42,6 @@ const RESULT_PRECISIONS: [Option<usize>; 5] = [None, Some(3), Some(4), Some(6), 
 const MENU_BG: Color32 = Color32::from_rgb(13, 22, 38);
 const ERROR_DARK: Color32 = Color32::from_rgb(255, 138, 128);
 const WARN_DARK: Color32 = Color32::from_rgb(255, 222, 138);
-const PAPER_SHADOW: Color32 = Color32::from_rgb(7, 13, 24);
 
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
@@ -140,6 +140,69 @@ fn install_fonts(ctx: &egui::Context) {
 
 fn text_font_family(font: TextFont, bold: bool, italic: bool) -> FontFamily {
     FontFamily::Name(Arc::from(format!("{}-{bold}-{italic}", font.name())))
+}
+
+fn append_rich_text(
+    job: &mut egui::text::LayoutJob,
+    rich: &StyledText,
+    color: Color32,
+    scale: f32,
+) {
+    for (text, format) in rich.runs() {
+        let font = FontId::new(
+            f32::from(format.size) * scale,
+            text_font_family(format.font, format.bold, format.italic),
+        );
+        let underline = if format.underline {
+            Stroke::new(scale, color)
+        } else {
+            Stroke::NONE
+        };
+        job.append(
+            text,
+            0.,
+            egui::TextFormat {
+                font_id: font,
+                color,
+                underline,
+                ..Default::default()
+            },
+        );
+    }
+}
+
+fn fragment_format_controls(ui: &mut egui::Ui, format: &mut TextFormat) {
+    egui::ComboBox::from_id_salt("fragment_font")
+        .width(122.)
+        .selected_text(format.font.name())
+        .show_ui(ui, |ui| {
+            for font in TextFont::OPTIONS {
+                ui.selectable_value(&mut format.font, font, font.name());
+            }
+        })
+        .response
+        .on_hover_text("Шрифт выделенного фрагмента");
+    egui::ComboBox::from_id_salt("fragment_size")
+        .width(54.)
+        .selected_text(format!("{} пт", format.size))
+        .show_ui(ui, |ui| {
+            for size in [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72] {
+                ui.selectable_value(&mut format.size, size, format!("{size} пт"));
+            }
+        })
+        .response
+        .on_hover_text("Размер выделенного фрагмента");
+    for (value, label, tip) in [
+        (&mut format.bold, RichText::new("B").strong(), "Полужирный"),
+        (&mut format.italic, RichText::new("I").italics(), "Курсив"),
+        (
+            &mut format.underline,
+            RichText::new("U").underline(),
+            "Подчёркивание",
+        ),
+    ] {
+        ui.toggle_value(value, label).on_hover_text(tip);
+    }
 }
 
 fn paper_edit_visuals(ui: &mut egui::Ui) {
@@ -463,8 +526,21 @@ impl Worksheet {
     }
 
     fn insert(&mut self, at: Pos2, region: editing::NewRegion<'_>) -> Calc<usize> {
+        self.insert_sized(at, region, None)
+    }
+
+    fn insert_sized(
+        &mut self,
+        at: Pos2,
+        region: editing::NewRegion<'_>,
+        size: Option<egui::Vec2>,
+    ) -> Calc<usize> {
         let math = matches!(&region, editing::NewRegion::Formula(_));
         let (xml, id) = editing::insert_region(&self.xml, at.x, at.y, region)?;
+        let xml = match size {
+            Some(size) => editing::grow_formula_region(&xml, &id, size.x, size.y)?,
+            None => xml,
+        };
         let candidate = self.rebuild(&xml, None)?;
         let index = candidate.by_id(&id)?;
         if math {
@@ -531,6 +607,15 @@ impl Worksheet {
     }
 
     fn apply_formula(&mut self, index: usize, source: &str) -> Calc<()> {
+        self.apply_formula_sized(index, source, None)
+    }
+
+    fn apply_formula_sized(
+        &mut self,
+        index: usize,
+        source: &str,
+        size: Option<egui::Vec2>,
+    ) -> Calc<()> {
         let edit = self
             .sheet
             .regions
@@ -542,6 +627,15 @@ impl Worksheet {
         }
         let edited = edit.replacement(&self.xml, source)?;
         let xml = editing::patch(&self.xml, vec![(edit.statement.clone(), edited)])?;
+        let xml = match size {
+            Some(size) => editing::grow_formula_region(
+                &xml,
+                &self.sheet.regions[index].source_id,
+                size.x,
+                size.y,
+            )?,
+            None => xml,
+        };
         let candidate = self.rebuild(&xml, Some(index))?;
         candidate.sheet.display(index)?;
         *self = candidate;
@@ -791,6 +885,9 @@ enum DraftRegion {
         body: String,
         style: editing::TextStyle,
         replace_region: Option<usize>,
+        rich: Option<StyledText>,
+        rich_active: bool,
+        selection: Option<egui::text::CCursorRange>,
     },
     Chart(Box<chart_view::Draft>),
     Plot3d(Box<plot3d_view::Draft3d>),
@@ -801,6 +898,9 @@ fn new_text_draft() -> DraftRegion {
         body: String::new(),
         style: editing::TextStyle::Normal,
         replace_region: None,
+        rich: Some(StyledText::plain("", TextFormat::for_heading(0))),
+        rich_active: false,
+        selection: None,
     }
 }
 
@@ -950,6 +1050,7 @@ struct Workbench {
     details: String,
     zoom: f32,
     sheet_width: f32,
+    last_inline_caret: Option<(Cursor, egui::Vec2)>,
     fit: bool,
     show_inputs: bool,
     status: String,
@@ -991,7 +1092,6 @@ impl Workbench {
             None => (Worksheet::blank()?, None),
         };
         let fit = document.extent.x > 760.;
-        let show_inputs = !document.sheet.regions.is_empty();
         let file_stamp = document.path.as_deref().and_then(file_stamp);
         let status = if document.path.is_some() {
             format!(
@@ -1015,8 +1115,9 @@ impl Workbench {
             details: String::new(),
             zoom: NORMAL_ZOOM,
             sheet_width: ctx.content_rect().width(),
+            last_inline_caret: None,
             fit,
-            show_inputs,
+            show_inputs: false,
             status,
             error,
             editor: None,
@@ -1100,7 +1201,6 @@ impl Workbench {
 
     fn replace(&mut self, document: Worksheet) {
         self.document = document;
-        self.show_inputs = !self.document.sheet.regions.is_empty();
         self.generation = self.generation.wrapping_add(1);
         self.selected = None;
         self.selected_ids.clear();
@@ -1116,6 +1216,7 @@ impl Workbench {
         self.textures.clear();
         self.caret = None;
         self.insertion = None;
+        self.last_inline_caret = None;
         self.undo_stack.clear();
         self.redo_stack.clear();
         self.drag = None;
@@ -1505,6 +1606,14 @@ impl Workbench {
                 body: body.clone(),
                 style: editing::TextStyle::from_heading_level(region.visual.heading),
                 replace_region: Some(index),
+                rich: region.visual.rich_text.clone().or_else(|| {
+                    region
+                        .visual
+                        .text_format
+                        .map(|format| StyledText::plain(body, format))
+                }),
+                rich_active: region.visual.rich_text.is_some(),
+                selection: None,
             },
             error: None,
             focus: true,
@@ -1930,7 +2039,7 @@ impl Workbench {
         }
     }
 
-    fn commit_insert(&mut self, insert: &Insertion) -> Calc<()> {
+    fn commit_insert(&mut self, insert: &Insertion, size: Option<egui::Vec2>) -> Calc<()> {
         let before = self.document.snapshot();
         let index = match &insert.draft {
             DraftRegion::Formula {
@@ -1944,21 +2053,51 @@ impl Workbench {
                     math.to_source()
                 };
                 if let Some(existing) = insert.replace_formula {
-                    self.document.apply_formula(existing, &source)?;
+                    self.document.apply_formula_sized(existing, &source, size)?;
                     existing
                 } else {
-                    self.document
-                        .insert(insert.at, editing::NewRegion::Formula(&source))?
+                    self.document.insert_sized(
+                        insert.at,
+                        editing::NewRegion::Formula(&source),
+                        size,
+                    )?
                 }
             }
             DraftRegion::Text {
                 body,
                 style,
                 replace_region,
+                rich,
+                rich_active,
+                ..
             } => {
+                let rich = rich.as_ref().filter(|_| *rich_active);
                 if let Some(existing) = *replace_region {
-                    self.document.replace_text(existing, body, *style)?;
+                    if let Some(rich) = rich {
+                        let region = &self.document.sheet.regions[existing];
+                        let xml = editing::replace_rich_text_region(
+                            &self.document.xml,
+                            &region.source_id,
+                            rich,
+                            *style,
+                        )?;
+                        self.document = self.document.rebuild(&xml, None)?;
+                    } else {
+                        self.document.replace_text(existing, body, *style)?;
+                    }
                     existing
+                } else if let Some(rich) = rich {
+                    let (xml, id) = editing::insert_region(
+                        &self.document.xml,
+                        insert.at.x,
+                        insert.at.y,
+                        editing::NewRegion::StyledText(body, *style),
+                    )?;
+                    let xml = editing::replace_rich_text_region(&xml, &id, rich, *style)?;
+                    let candidate = self.document.rebuild(&xml, None)?;
+                    let index = candidate.by_id(&id)?;
+                    self.document = candidate;
+                    index
                 } else {
                     self.document
                         .insert(insert.at, editing::NewRegion::StyledText(body, *style))?
@@ -2023,24 +2162,103 @@ impl Workbench {
         let response = egui::Modal::new(egui::Id::new("add_region")).show(ctx, |ui| {
             ui.set_width(435.);
             match &mut insert.draft {
-                DraftRegion::Text { body, style, .. } => {
+                DraftRegion::Text {
+                    body,
+                    style,
+                    rich,
+                    rich_active,
+                    selection,
+                    ..
+                } => {
                     ui.heading("Текст на листе");
+                    let previous = *style;
                     ui.horizontal(|ui| {
                         ui.label("Стиль:");
                         ui.selectable_value(style, editing::TextStyle::Normal, "Обычный");
                         ui.selectable_value(style, editing::TextStyle::Heading1, "Заголовок 1");
                         ui.selectable_value(style, editing::TextStyle::Heading2, "Заголовок 2");
                     });
+                    if previous != *style && !*rich_active {
+                        *rich = Some(StyledText::plain(
+                            body,
+                            TextFormat::for_heading(match style {
+                                editing::TextStyle::Normal => 0,
+                                editing::TextStyle::Heading1 => 1,
+                                editing::TextStyle::Heading2 => 2,
+                            }),
+                        ));
+                    }
                     ui.add_space(4.);
-                    let field = ui.add(
-                        TextEdit::multiline(body)
-                            .desired_width(435.)
-                            .desired_rows(5)
-                            .hint_text("Введите текст"),
-                    );
+                    let mut layout = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width: f32| {
+                        let color = ui.visuals().text_color();
+                        let mut job = egui::text::LayoutJob::default();
+                        job.wrap.max_width = width;
+                        if let Some(rich) = rich.as_ref().filter(|_| *rich_active) {
+                            if rich.body == buffer.as_str() {
+                                append_rich_text(&mut job, rich, color, 1.2);
+                            } else {
+                                let mut preview = rich.clone();
+                                preview.sync(buffer.as_str());
+                                append_rich_text(&mut job, &preview, color, 1.2);
+                            }
+                        } else {
+                            job.append(
+                                buffer.as_str(),
+                                0.,
+                                egui::TextFormat::simple(FontId::proportional(14.), color),
+                            );
+                        }
+                        ui.fonts_mut(|fonts| fonts.layout_job(job))
+                    };
+                    let mut field = TextEdit::multiline(body)
+                        .desired_width(435.)
+                        .desired_rows(5)
+                        .char_limit(24_000)
+                        .hint_text("Введите текст")
+                        .layouter(&mut layout)
+                        .show(ui);
                     if insert.focus {
-                        field.request_focus();
+                        field.response.request_focus();
                         insert.focus = false;
+                    }
+                    if field.response.has_focus() {
+                        *selection = field.cursor_range.filter(|range| !range.is_empty());
+                    }
+                    if let Some(rich) = rich {
+                        rich.sync(body);
+                        let selected = selection.map(|range| range.as_sorted_char_range());
+                        ui.add_enabled_ui(selected.is_some(), |ui| {
+                            if let Some(range) = selected {
+                                let before = rich.format_at(range.start);
+                                let mut format = before;
+                                ui.horizontal(|ui| fragment_format_controls(ui, &mut format));
+                                if before != format {
+                                    rich.apply(range, |value| {
+                                        if before.font != format.font {
+                                            value.font = format.font;
+                                        }
+                                        if before.size != format.size {
+                                            value.size = format.size;
+                                        }
+                                        if before.bold != format.bold {
+                                            value.bold = format.bold;
+                                        }
+                                        if before.italic != format.italic {
+                                            value.italic = format.italic;
+                                        }
+                                        if before.underline != format.underline {
+                                            value.underline = format.underline;
+                                        }
+                                    });
+                                    *rich_active = true;
+                                    field.state.cursor.set_char_range(*selection);
+                                    field.state.store(ui.ctx(), field.response.id);
+                                    field.response.request_focus();
+                                }
+                            } else {
+                                ui.label("Выделите фрагмент текста для форматирования");
+                            }
+                        });
                     }
                 }
                 DraftRegion::Chart(draft) => {
@@ -2065,7 +2283,7 @@ impl Workbench {
             .inner
         });
         if response.inner.0 {
-            match self.commit_insert(&insert) {
+            match self.commit_insert(&insert, None) {
                 Ok(()) => {
                     ctx.request_repaint();
                     return;
@@ -3989,7 +4207,7 @@ impl Workbench {
                 egui::ScrollArea::both()
                     .id_salt(("sheet_view", self.generation))
                     .auto_shrink([false, false])
-                    .show_viewport(ui, |ui, _viewport| self.paper(ui, zoom));
+                    .show_viewport(ui, |ui, viewport| self.paper(ui, zoom, viewport.size()));
             });
     }
 
@@ -3997,34 +4215,58 @@ impl Workbench {
         if !self.fit {
             return self.zoom;
         }
-        ((width - 38.) / self.document.extent.x).clamp(0.50, NORMAL_ZOOM)
+        (width / self.document.extent.x).clamp(0.50, NORMAL_ZOOM)
     }
 
-    fn paper(&mut self, ui: &mut egui::Ui, zoom: f32) {
+    fn inline_formula_size(ui: &egui::Ui, draft: &DraftRegion, zoom: f32) -> Option<egui::Vec2> {
+        let DraftRegion::Formula {
+            math,
+            text_mode,
+            text,
+        } = draft
+        else {
+            return None;
+        };
+        if *text_mode {
+            let font = FontId::monospace(15.);
+            let width = ui
+                .painter()
+                .layout_no_wrap(text.clone(), font, INK)
+                .rect
+                .width();
+            Some(vec2((width + 32.).clamp(240., 540.), 27.))
+        } else {
+            let metrics =
+                math_view::measure_slot(ui.painter(), &math.root, inline_font_size(zoom), true);
+            Some(vec2(
+                (metrics.width + 26.).max(190.),
+                (metrics.height() + 14.).max(30.),
+            ))
+        }
+    }
+
+    fn paper_size(&self, ui: &egui::Ui, zoom: f32, viewport: egui::Vec2) -> egui::Vec2 {
         let potential = self.insertion.as_ref().map(|draft| draft.at).or(self.caret);
-        let extended = potential.map_or(self.document.extent, |point| {
-            self.document
-                .extent
-                .max((point - self.document.origin) + vec2(275., 105.))
-        });
-        let page_size = extended * zoom;
-        let margin = 13.;
-        let width = ui.available_width().max(page_size.x + 2. * margin);
-        let (space, _) =
-            ui.allocate_exact_size(vec2(width, page_size.y + 2. * margin), Sense::hover());
-        let page = Rect::from_min_size(
-            Pos2::new(space.center().x - page_size.x / 2., space.top() + margin),
-            page_size,
-        );
+        let mut page_size = (self.document.extent * zoom).max(viewport);
+        if let Some(point) = potential {
+            let offset = (point - self.document.origin + vec2(25., 26.)) * zoom;
+            if let Some(size) = self
+                .insertion
+                .as_ref()
+                .and_then(|entry| Self::inline_formula_size(ui, &entry.draft, zoom))
+            {
+                page_size = page_size.max(offset + (size + vec2(48., 64.)).max(vec2(415., 0.)));
+            } else {
+                page_size = page_size.max(offset + vec2(28., 100.));
+            }
+        }
+        page_size
+    }
+
+    fn paper(&mut self, ui: &mut egui::Ui, zoom: f32, viewport: egui::Vec2) {
+        let (page, _) = ui.allocate_exact_size(self.paper_size(ui, zoom, viewport), Sense::hover());
         let painter = ui.painter();
-        painter.rect_filled(page.translate(vec2(3., 4.)), 8., PAPER_SHADOW);
-        painter.rect(
-            page,
-            8.,
-            PAPER,
-            Stroke::new(1.0_f32, tool_ribbon::BORDER_DARK),
-            StrokeKind::Inside,
-        );
+        painter.rect_filled(page, 0., PAPER);
         if self.show_grid {
             let step = (24. * zoom).max(12.);
             let grid_clip = page.intersect(ui.clip_rect());
@@ -4527,10 +4769,16 @@ impl Workbench {
                     }
                 } else {
                     let mut anchor = rect.min;
-                    let galley = if let Some(format) = region.visual.text_format {
+                    let alignment = region
+                        .visual
+                        .rich_text
+                        .as_ref()
+                        .map(|rich| rich.alignment)
+                        .or_else(|| region.visual.text_format.map(|format| format.alignment));
+                    let galley = if let Some(alignment) = alignment {
                         let mut job = egui::text::LayoutJob::default();
                         job.wrap.max_width = rect.width().max(1.);
-                        job.halign = match format.alignment {
+                        job.halign = match alignment {
                             TextAlignment::Left => Align::Min,
                             TextAlignment::Center => {
                                 anchor.x = rect.center().x;
@@ -4541,23 +4789,27 @@ impl Workbench {
                                 Align::Max
                             }
                         };
-                        job.append(
-                            text,
-                            0.,
-                            egui::TextFormat {
-                                font_id: FontId::new(
-                                    f32::from(format.size) * zoom,
-                                    text_font_family(format.font, format.bold, format.italic),
-                                ),
-                                color,
-                                underline: if format.underline {
-                                    Stroke::new(zoom, color)
-                                } else {
-                                    Stroke::NONE
+                        if let Some(rich) = &region.visual.rich_text {
+                            append_rich_text(&mut job, rich, color, zoom);
+                        } else if let Some(format) = region.visual.text_format {
+                            job.append(
+                                text,
+                                0.,
+                                egui::TextFormat {
+                                    font_id: FontId::new(
+                                        f32::from(format.size) * zoom,
+                                        text_font_family(format.font, format.bold, format.italic),
+                                    ),
+                                    color,
+                                    underline: if format.underline {
+                                        Stroke::new(zoom, color)
+                                    } else {
+                                        Stroke::NONE
+                                    },
+                                    ..Default::default()
                                 },
-                                ..Default::default()
-                            },
-                        );
+                            );
+                        }
                         ui.painter().layout_job(job)
                     } else {
                         ui.painter().layout(
@@ -4567,7 +4819,7 @@ impl Workbench {
                             rect.width().max(60.),
                         )
                     };
-                    let text_height = if region.visual.text_format.is_some() {
+                    let text_height = if alignment.is_some() {
                         galley.rect.height()
                     } else {
                         galley.rect.height().min(40. * zoom)
@@ -4807,9 +5059,7 @@ impl Workbench {
             if let Some(click) = sheet_response.interact_pointer_pos() {
                 let relative = (click - page.min) / zoom - vec2(25., 26.);
                 self.caret = Some(Pos2::new(
-                    (relative.x + self.document.origin.x)
-                        .max(0.)
-                        .min((extended.x - 190.).max(0.)),
+                    (relative.x + self.document.origin.x).max(0.),
                     (relative.y + self.document.origin.y).max(0.),
                 ));
                 self.selected = None;
@@ -4905,19 +5155,21 @@ impl Workbench {
 
     fn inline_formula(&mut self, ui: &mut egui::Ui, page: Rect, zoom: f32) {
         let Some(mut insert) = self.insertion.take() else {
+            self.last_inline_caret = None;
             return;
         };
+        let size = Self::inline_formula_size(ui, &insert.draft, zoom);
         let DraftRegion::Formula {
             math,
             text,
             text_mode,
         } = &mut insert.draft
         else {
+            self.last_inline_caret = None;
             self.insertion = Some(insert);
             return;
         };
         let point = page.min + ((insert.at - self.document.origin) + vec2(25., 26.)) * zoom;
-        let max_w = (page.right() - point.x - 42.).clamp(180., 480.);
         let bar_y = (point.y - 24.).max(page.top() + 4.);
         let mut bx = point.x;
         let btn_h = 20.;
@@ -4977,7 +5229,8 @@ impl Workbench {
 
         let search_blocks = self.tool_search.is_blocking_sheet(ui.ctx());
         let (field, enter) = if *text_mode {
-            let field = Rect::from_min_size(point, vec2(max_w, 27.));
+            self.last_inline_caret = None;
+            let field = Rect::from_min_size(point, size.expect("formula size"));
             let response = ui
                 .scope(|ui| {
                     paper_edit_visuals(ui);
@@ -4986,7 +5239,7 @@ impl Workbench {
                         TextEdit::singleline(text)
                             .font(FontId::monospace(15.))
                             .char_limit(4096)
-                            .desired_width(max_w)
+                            .desired_width(field.width())
                             .hint_text("Формула  x := 2  или  x^2 ="),
                     )
                 })
@@ -5002,7 +5255,7 @@ impl Workbench {
             (field, enter)
         } else {
             let style = math_view::Style {
-                font_size: (15. * zoom).clamp(13., 24.),
+                font_size: inline_font_size(zoom),
                 ink: INK,
                 accent: ACCENT,
                 muted: MUTED,
@@ -5010,12 +5263,13 @@ impl Workbench {
                 placeholder_bg: PALE,
             };
             let metrics = math_view::measure_slot(ui.painter(), &math.root, style.font_size, true);
-            let width = (metrics.width + 26.).clamp(190., max_w);
-            let height = (metrics.height() + 14.).max(30.);
-            let field = Rect::from_min_size(point, vec2(width, height));
-            if insert.focus {
-                ui.scroll_to_rect(field, Some(Align::Center));
-            }
+            let field = Rect::from_min_size(
+                point,
+                vec2(
+                    (metrics.width + 26.).max(190.),
+                    (metrics.height() + 14.).max(30.),
+                ),
+            );
             ui.painter().rect(
                 field,
                 5.,
@@ -5042,7 +5296,7 @@ impl Workbench {
                     MUTED,
                 );
             }
-            math_view::paint_editor(
+            let caret = math_view::paint_editor(
                 &ui.painter().with_clip_rect(field.shrink(2.)),
                 origin,
                 math,
@@ -5050,13 +5304,37 @@ impl Workbench {
                 click_pos,
                 !search_blocks,
             );
+            let position = (math.cursor.clone(), field.size());
+            if !search_blocks
+                && (insert.focus || self.last_inline_caret.as_ref() != Some(&position))
+            {
+                let controls = field.union(mode_rect).expand(12.);
+                let visible = ui.clip_rect().size();
+                let target = if controls.width() <= visible.x && controls.height() <= visible.y {
+                    controls
+                } else {
+                    caret.unwrap_or(field).expand(16.)
+                };
+                ui.scroll_to_rect(target, None);
+            }
+            self.last_inline_caret = Some(position);
             if insert.focus {
                 insert.focus = false;
-            } else if !search_blocks && math_view::handle_keyboard(ui.ctx(), math) {
-                *text = math.to_source();
+            } else if !search_blocks {
+                let cursor = math.cursor.clone();
+                if math_view::handle_keyboard(ui.ctx(), math) {
+                    *text = math.to_source();
+                    insert.error = None;
+                    ui.ctx().request_repaint();
+                } else if math.cursor != cursor {
+                    ui.ctx().request_repaint();
+                }
             }
-            let enter = !search_blocks
-                && ui.input(|input| input.key_pressed(Key::Enter) && !input.modifiers.shift);
+            let enter = !search_blocks && ui.input(|input| {
+                input.events.iter().any(|event| {
+                    matches!(event, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if !modifiers.shift)
+                })
+            });
             (field, enter)
         };
 
@@ -5067,7 +5345,8 @@ impl Workbench {
             )
             .on_hover_text("Применить формулу (Enter)");
         if ok.clicked() || enter {
-            match self.commit_insert(&insert) {
+            let size = (field.size() + vec2(165., 8.)) / zoom;
+            match self.commit_insert(&insert, Some(size)) {
                 Ok(()) => {
                     ui.ctx().request_repaint();
                     return;
@@ -5091,6 +5370,10 @@ impl Workbench {
         }
         self.insertion = Some(insert);
     }
+}
+
+fn inline_font_size(zoom: f32) -> f32 {
+    (15. * zoom).clamp(13., 24.)
 }
 
 fn detect_image_meta(bytes: &[u8], path: &Path) -> (String, u32, u32) {
@@ -5478,6 +5761,80 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sheet_fills_the_viewport_and_grows_for_a_large_draft() {
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        let viewport = vec2(1200., 920.);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                assert_eq!(app.paper_size(ui, NORMAL_ZOOM, viewport), viewport);
+                app.caret = Some(Pos2::new(970., 730.));
+                app.start_insert(formula_draft(String::new()));
+                let draft = &mut app.insertion.as_mut().unwrap().draft;
+                let DraftRegion::Formula { math, .. } = draft else {
+                    unreachable!()
+                };
+                math.insert_program(2);
+                for _ in 0..35 {
+                    math.add_program_line();
+                }
+                let size = Workbench::inline_formula_size(ui, draft, NORMAL_ZOOM).unwrap();
+                let paper = app.paper_size(ui, NORMAL_ZOOM, viewport);
+                assert!(paper.x > viewport.x);
+                assert!(paper.y >= (730. + 26.) * NORMAL_ZOOM + size.y);
+            });
+        });
+        let mut insert = app.insertion.take().unwrap();
+        insert.draft = formula_draft("2 + 3 =".into());
+        app.commit_insert(&insert, Some(vec2(512., 480.))).unwrap();
+        let copy = app.document.export().unwrap();
+        let reopened = Worksheet::load(&copy, "Копия".into(), None).unwrap();
+        assert_eq!(reopened.sheet.regions[0].visual.height, 480.);
+        assert_eq!(reopened.sheet.regions[0].visual.width, 512.);
+    }
+
+    #[test]
+    fn formats_only_the_selected_unicode_text_and_preserves_runs_on_reopen() {
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        app.start_insert(new_text_draft());
+        let mut insert = app.insertion.take().unwrap();
+        let DraftRegion::Text {
+            body,
+            rich,
+            rich_active,
+            ..
+        } = &mut insert.draft
+        else {
+            unreachable!();
+        };
+        *body = "До & после\nВторая строка".into();
+        let rich = rich.as_mut().unwrap();
+        rich.sync(body);
+        rich.apply(5..10, |format| {
+            format.font = TextFont::Times;
+            format.size = 24;
+            format.bold = true;
+            format.italic = true;
+            format.underline = true;
+        });
+        *rich_active = true;
+        app.commit_insert(&insert, None).unwrap();
+        let copy = app.document.export().unwrap();
+        assert!(copy.contains("<b><i><u>после</u></i></b>"));
+        let reopened = Worksheet::load(&copy, "Копия".into(), None).unwrap();
+        let rich = reopened.sheet.regions[0].visual.rich_text.as_ref().unwrap();
+        assert_eq!(rich.body, "До & после\nВторая строка");
+        assert_eq!(rich.format_at(4).size, 10);
+        assert_eq!(rich.format_at(5).size, 24);
+        assert_eq!(rich.format_at(10).size, 10);
+        let html = reopened.build_html_report();
+        assert!(html.contains("text-decoration:underline\">после</span>"));
+        app.undo();
+        assert!(app.document.sheet.regions.is_empty());
+    }
 
     #[test]
     fn click_and_type_on_an_empty_page_then_press_enter() {
@@ -5897,7 +6254,7 @@ mod tests {
         app.apply_palette_action(math_view::PaletteAction::Sqrt);
         app.apply_palette_action(math_view::PaletteAction::Raw("16"));
         let insert = app.insertion.take().unwrap();
-        app.commit_insert(&insert).unwrap();
+        app.commit_insert(&insert, None).unwrap();
         assert_eq!(app.document.sheet.display(0).unwrap(), "4");
         assert_eq!(app.undo_stack.len(), 1);
         app.undo();
@@ -6475,7 +6832,7 @@ mod tests {
             *text = math.to_source();
             *text_mode = false;
         }
-        app.commit_insert(&ins).unwrap();
+        app.commit_insert(&ins, None).unwrap();
         assert_eq!(
             app.document.sheet.display(call_idx).unwrap(),
             "5×1 [0; 1; 4; 9; 16]"

@@ -1762,7 +1762,7 @@ pub struct TextFormat {
 }
 
 impl TextFormat {
-    fn for_heading(heading: u8) -> Self {
+    pub fn for_heading(heading: u8) -> Self {
         Self {
             font: TextFont::Arial,
             size: match heading {
@@ -1800,8 +1800,69 @@ fn text_styles<'a, 'input>(root: Xml<'a, 'input>) -> Option<Xml<'a, 'input>> {
         })
 }
 
+pub(crate) fn paragraph_text_format(p: Xml<'_, '_>) -> Option<TextFormat> {
+    let styles = text_styles(p.document().root_element())?;
+    let style = p.attribute("style").unwrap_or("Normal");
+    let mut format = TextFormat::for_heading(text_heading(style));
+    let definition = elements(styles)
+        .find(|&node| named(node, WS, "textStyle") && node.attribute("name") == Some(style));
+    if definition.is_some_and(|node| node.attribute("base-style").is_some()) {
+        return None;
+    }
+    let inline =
+        definition.and_then(|def| elements(def).find(|&node| named(node, WS, "inlineAttr")));
+    if let Some(inline) = inline {
+        if inline.attribute("line-through") == Some("true")
+            || !matches!(
+                inline.attribute("vertical-align"),
+                None | Some("baseline" | "inherit")
+            )
+        {
+            return None;
+        }
+        if let Some(name) = inline
+            .attribute("font-family")
+            .filter(|name| *name != "inherit")
+        {
+            format.font = TextFont::OPTIONS
+                .into_iter()
+                .find(|font| font.name().eq_ignore_ascii_case(name))?;
+        }
+        if let Some(size) = inline
+            .attribute("font-size")
+            .filter(|size| *size != "inherit")
+        {
+            format.size = size
+                .parse::<u16>()
+                .ok()
+                .filter(|size| (6..=72).contains(size))?;
+        }
+        if let Some(weight) = inline
+            .attribute("font-weight")
+            .filter(|weight| *weight != "inherit")
+        {
+            format.bold = weight == "bold";
+        }
+        format.italic = inline.attribute("font-style") == Some("italic");
+        format.underline = inline.attribute("underline") == Some("true");
+    }
+    let inherited_alignment = definition
+        .and_then(|def| elements(def).find(|&node| named(node, WS, "blockAttr")))
+        .and_then(|block| block.attribute("text-align"));
+    format.alignment = match p
+        .attribute("text-align")
+        .filter(|align| *align != "inherit")
+        .or(inherited_alignment)
+    {
+        None | Some("left" | "inherit") => TextAlignment::Left,
+        Some("center") => TextAlignment::Center,
+        Some("right") => TextAlignment::Right,
+        _ => return None,
+    };
+    Some(format)
+}
+
 pub(crate) fn region_text_format(text: Xml<'_, '_>) -> Option<TextFormat> {
-    let styles = text_styles(text.document().root_element())?;
     let mut paragraphs = elements(text);
     let first = paragraphs.next()?;
     let style = first.attribute("style").unwrap_or("Normal");
@@ -1812,63 +1873,7 @@ pub(crate) fn region_text_format(text: Xml<'_, '_>) -> Option<TextFormat> {
         {
             return None;
         }
-        let mut format = TextFormat::for_heading(text_heading(style));
-        let definition = elements(styles)
-            .find(|&node| named(node, WS, "textStyle") && node.attribute("name") == Some(style));
-        if definition.is_some_and(|node| node.attribute("base-style").is_some()) {
-            return None;
-        }
-        let inline =
-            definition.and_then(|def| elements(def).find(|&node| named(node, WS, "inlineAttr")));
-        if let Some(inline) = inline {
-            if inline.attribute("line-through") == Some("true")
-                || !matches!(
-                    inline.attribute("vertical-align"),
-                    None | Some("baseline" | "inherit")
-                )
-            {
-                return None;
-            }
-            if let Some(name) = inline
-                .attribute("font-family")
-                .filter(|name| *name != "inherit")
-            {
-                format.font = TextFont::OPTIONS
-                    .into_iter()
-                    .find(|font| font.name().eq_ignore_ascii_case(name))?;
-            }
-            if let Some(size) = inline
-                .attribute("font-size")
-                .filter(|size| *size != "inherit")
-            {
-                format.size = size
-                    .parse::<u16>()
-                    .ok()
-                    .filter(|size| (6..=72).contains(size))?;
-            }
-            if let Some(weight) = inline
-                .attribute("font-weight")
-                .filter(|weight| *weight != "inherit")
-            {
-                format.bold = weight == "bold";
-            }
-            format.italic = inline.attribute("font-style") == Some("italic");
-            format.underline = inline.attribute("underline") == Some("true");
-        }
-        let inherited_alignment = definition
-            .and_then(|def| elements(def).find(|&node| named(node, WS, "blockAttr")))
-            .and_then(|block| block.attribute("text-align"));
-        format.alignment = match p
-            .attribute("text-align")
-            .filter(|align| *align != "inherit")
-            .or(inherited_alignment)
-        {
-            None | Some("left" | "inherit") => TextAlignment::Left,
-            Some("center") => TextAlignment::Center,
-            Some("right") => TextAlignment::Right,
-            _ => return None,
-        };
-        Some(format)
+        paragraph_text_format(p)
     };
     let initial = read(first)?;
     paragraphs
@@ -2255,6 +2260,29 @@ pub fn move_regions(xml: &str, moves: &[(String, f32, f32)]) -> Calc<String> {
     patch(xml, edits)
 }
 
+pub fn grow_formula_region(xml: &str, id: &str, width: f32, height: f32) -> Calc<String> {
+    if !width.is_finite() || !height.is_finite() {
+        return Err("неверный размер формулы".into());
+    }
+    let doc = document(xml)?;
+    let region = elements(doc.root_element())
+        .find(|&node| named(node, WS, "regions"))
+        .and_then(|container| {
+            elements(container)
+                .find(|&node| named(node, WS, "region") && node.attribute("region-id") == Some(id))
+        })
+        .ok_or("не найдена формула на листе")?;
+    let width = width.ceil().max(parse_coord(region, "width").unwrap_or(0.));
+    let height = height
+        .ceil()
+        .max(parse_coord(region, "height").unwrap_or(0.));
+    let range = region.range();
+    let end = range.start + find_open_tag_end(&xml[range.clone()]).ok_or("неверный тег региона")?;
+    let opening = set_xml_attr(&xml[range.start..end], "width", &width.to_string());
+    let opening = set_xml_attr(&opening, "height", &height.to_string());
+    patch(xml, vec![(range.start..end, opening)])
+}
+
 pub fn delete_regions(xml: &str, ids: &[String]) -> Calc<String> {
     if ids.is_empty() {
         return Ok(xml.into());
@@ -2330,7 +2358,6 @@ pub fn copy_regions(xml: &str, ids: &[String]) -> Calc<Vec<ClipboardRegion>> {
         let top = parse_coord(node, "top").unwrap_or(0.);
         let text_style = styles.and_then(|styles| {
             let text = elements(node).find(|&part| named(part, WS, "text"))?;
-            region_text_format(text)?;
             let name = elements(text).next()?.attribute("style")?;
             if !name.contains(FORMAT_STYLE_SEPARATOR) {
                 return None;
@@ -2762,6 +2789,95 @@ pub fn format_text_region(xml: &str, region_id: &str, format: TextFormat) -> Cal
         }
     }
     patch(xml, changes)
+}
+
+pub fn replace_rich_text_region(
+    xml: &str,
+    region_id: &str,
+    rich: &crate::rich_text::RichText,
+    style: TextStyle,
+) -> Calc<String> {
+    let plain = replace_text_region(xml, region_id, &rich.body, style)?;
+    let neutral = TextFormat {
+        alignment: rich.alignment,
+        ..TextFormat::for_heading(0)
+    };
+    let plain = format_text_region(&plain, region_id, neutral)?;
+    let doc = document(&plain)?;
+    let region = elements(doc.root_element())
+        .find(|&node| named(node, WS, "regions"))
+        .and_then(|regions| {
+            elements(regions).find(|&node| {
+                named(node, WS, "region") && node.attribute("region-id") == Some(region_id)
+            })
+        })
+        .ok_or("не найден текстовый регион")?;
+    let text = elements(region)
+        .find(|&node| named(node, WS, "text"))
+        .ok_or("не найден текст")?;
+    let paragraph = elements(text).next().ok_or("не найден абзац")?;
+    let style = paragraph.attribute("style").unwrap_or("Normal");
+    let mut parts = vec![String::new()];
+    let mut largest = neutral.size;
+    for (run, format) in rich.runs() {
+        largest = largest.max(format.size);
+        for (index, line) in run.split('\n').enumerate() {
+            if index > 0 {
+                parts.push(String::new());
+            }
+            if line.is_empty() {
+                continue;
+            }
+            let mut body = escape(line);
+            for (tag, enabled) in [
+                ("u", format.underline),
+                ("i", format.italic),
+                ("b", format.bold),
+            ] {
+                if enabled {
+                    body = format!("<{tag}>{body}</{tag}>");
+                }
+            }
+            parts
+                .last_mut()
+                .expect("paragraph exists")
+                .push_str(&format!(
+                    "<f family=\"{}\" charset=\"0\" size=\"{}\">{body}</f>",
+                    format.font.name(),
+                    format.size,
+                ));
+        }
+    }
+    let paragraphs: String = parts
+        .into_iter()
+        .map(|body| {
+            format!(
+                "<p style=\"{}\" text-align=\"{}\">{body}</p>",
+                escape(style),
+                rich.alignment.name(),
+            )
+        })
+        .collect();
+    let range = text.range();
+    let markup = &plain[range.clone()];
+    let start = range.start + find_open_tag_end(markup).ok_or("не найдено начало текста")?;
+    let end = range.start + markup.rfind("</").ok_or("не найден конец текста")?;
+    let region_range = region.range();
+    let region_end = region_range.start
+        + find_open_tag_end(&plain[region_range.clone()]).ok_or("не найдено начало региона")?;
+    let height = formatted_text_height(rich.body.split('\n'), region.attribute("width"), largest);
+    let region_opening = set_xml_attr(
+        &plain[region_range.start..region_end],
+        "height",
+        &height.to_string(),
+    );
+    patch(
+        &plain,
+        vec![
+            (region_range.start..region_end, region_opening),
+            (start..end, paragraphs),
+        ],
+    )
 }
 
 pub fn read_page_settings(xml: &str) -> Calc<PageSettings> {
