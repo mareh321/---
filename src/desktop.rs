@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod chart_view;
+mod command_icons;
 mod math_view;
 mod plot3d_view;
 mod tool_ribbon;
@@ -32,6 +33,9 @@ const PAPER: Color32 = Color32::WHITE;
 const INDEX_INK: Color32 = Color32::from_rgb(56, 72, 168);
 const CROSSHAIR: Color32 = Color32::from_rgb(196, 43, 28);
 const GRID_DOT: Color32 = Color32::from_rgb(212, 222, 236);
+
+const NORMAL_ZOOM: f32 = 1.22;
+const RESULT_PRECISIONS: [Option<usize>; 5] = [None, Some(3), Some(4), Some(6), Some(8)];
 
 const MENU_BG: Color32 = Color32::from_rgb(13, 22, 38);
 const ERROR_DARK: Color32 = Color32::from_rgb(255, 138, 128);
@@ -977,7 +981,7 @@ impl Workbench {
             entry: String::new(),
             unit_entry: String::new(),
             details: String::new(),
-            zoom: 1.22,
+            zoom: NORMAL_ZOOM,
             sheet_width: ctx.content_rect().width(),
             fit,
             show_inputs,
@@ -999,7 +1003,7 @@ impl Workbench {
             tool_search: tool_ribbon::SearchState::default(),
             matrix_rows: 2,
             matrix_cols: 2,
-            show_grid: true,
+            show_grid: false,
             show_regions: false,
             print_preview: false,
             page_dialog: None,
@@ -1088,7 +1092,7 @@ impl Workbench {
         self.file_stamp = self.document.path.as_deref().and_then(file_stamp);
         self.last_watch_check = Instant::now();
         self.fit = self.document.extent.x > 760.;
-        self.zoom = 1.22;
+        self.zoom = NORMAL_ZOOM;
         self.status = format!(
             "Лист открыт · рассчитано формул {}",
             self.document.formulas - self.document.errors
@@ -1271,11 +1275,26 @@ impl Workbench {
         }
     }
 
-    fn delete_selected(&mut self) {
+    fn remove_selected(&mut self, cut: bool) {
         if self.selected_ids.is_empty() {
             return;
         }
         let ids = self.selected_ids.clone();
+        let cut_items = if cut {
+            match editing::copy_regions(&self.document.xml, &ids) {
+                Ok(items) if items.len() == ids.len() => Some(items),
+                Ok(_) => {
+                    self.error = Some("Не удалось скопировать все выбранные регионы".into());
+                    return;
+                }
+                Err(error) => {
+                    self.error = Some(error);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let snap = self.document.snapshot();
         match self.document.delete_regions(&ids) {
             Ok(()) => {
@@ -1285,7 +1304,12 @@ impl Workbench {
                 self.entry.clear();
                 self.details.clear();
                 self.error = None;
-                self.status = format!("Удалено регионов: {}", ids.len());
+                self.status = if let Some(items) = cut_items {
+                    self.clipboard = items;
+                    format!("Вырезано регионов: {}", ids.len())
+                } else {
+                    format!("Удалено регионов: {}", ids.len())
+                };
             }
             Err(error) => self.error = Some(error),
         }
@@ -2879,6 +2903,16 @@ impl Workbench {
                         if ui
                             .add_enabled(
                                 !self.selected_ids.is_empty(),
+                                egui::Button::new("Вырезать (Ctrl+X)"),
+                            )
+                            .clicked()
+                        {
+                            self.remove_selected(true);
+                            ui.close();
+                        }
+                        if ui
+                            .add_enabled(
+                                !self.selected_ids.is_empty(),
                                 egui::Button::new("Копировать (Ctrl+C)"),
                             )
                             .clicked()
@@ -2903,7 +2937,7 @@ impl Workbench {
                             )
                             .clicked()
                         {
-                            self.delete_selected();
+                            self.remove_selected(false);
                             ui.close();
                         }
                         ui.separator();
@@ -2917,6 +2951,38 @@ impl Workbench {
                             if let Some(idx) = self.selected {
                                 self.start_formula(idx);
                             }
+                            ui.close();
+                        }
+                    });
+                    ui.menu_button("Вид", |ui| {
+                        ui.checkbox(&mut self.show_grid, "Сетка листа");
+                        ui.checkbox(&mut self.show_regions, "Границы регионов");
+                        ui.checkbox(&mut self.print_preview, "Предпросмотр печати (страницы)");
+                        ui.checkbox(&mut self.auto_reload, "Автообновление файла с диска");
+                        if ui
+                            .add_enabled(
+                                !self.document.input_indices.is_empty(),
+                                egui::Button::new("Анимация параметра…"),
+                            )
+                            .clicked()
+                        {
+                            let idx = self
+                                .selected
+                                .filter(|&i| self.document.sheet.editable(i))
+                                .unwrap_or(self.document.input_indices[0]);
+                            self.open_animation(idx);
+                            ui.close();
+                        }
+                        ui.separator();
+                        ui.checkbox(&mut self.show_palette, "Панель инструментов");
+                        ui.checkbox(&mut self.show_inputs, "Панель входов и инспектор");
+                        ui.separator();
+                        if ui.button("Масштаб 100 %").clicked() {
+                            self.fit = false;
+                            self.zoom = NORMAL_ZOOM;
+                            ui.close();
+                        }
+                        if ui.checkbox(&mut self.fit, "По ширине листа").clicked() {
                             ui.close();
                         }
                     });
@@ -3107,74 +3173,26 @@ impl Workbench {
                             ui.close();
                         }
                     });
-                    ui.menu_button("Вид", |ui| {
-                        ui.checkbox(&mut self.show_grid, "Сетка листа");
-                        ui.checkbox(&mut self.show_regions, "Границы регионов");
-                        ui.checkbox(&mut self.print_preview, "Предпросмотр печати (страницы)");
-                        ui.checkbox(&mut self.auto_reload, "Автообновление файла с диска");
-                        if ui
-                            .add_enabled(
-                                !self.document.input_indices.is_empty(),
-                                egui::Button::new("Анимация параметра…"),
-                            )
-                            .clicked()
-                        {
-                            let idx = self
-                                .selected
-                                .filter(|&i| self.document.sheet.editable(i))
-                                .unwrap_or(self.document.input_indices[0]);
-                            self.open_animation(idx);
-                            ui.close();
-                        }
-                        ui.separator();
-                        ui.checkbox(&mut self.show_palette, "Панель инструментов");
-                        ui.checkbox(&mut self.show_inputs, "Панель входов и инспектор");
-                        ui.separator();
-                        if ui.button("Масштаб 100 %").clicked() {
-                            self.fit = false;
-                            self.zoom = 1.22;
-                            ui.close();
-                        }
-                        if ui.checkbox(&mut self.fit, "По ширине листа").clicked() {
-                            ui.close();
-                        }
-                    });
                     ui.menu_button("Формат", |ui| {
                         if ui.button("Параметры страницы и колонтитулы…").clicked()
                         {
                             self.page_dialog = Some(self.document.page_settings.clone());
                             ui.close();
                         }
-                        if let Some(index) = self.selected {
-                            let region = &self.document.sheet.regions[index];
-                            let is_text = region.text.is_some()
-                                && !region.visual.graphical
-                                && !region.is_page_break()
-                                && region.label != "Ссылка";
-                            if ui
-                                .add_enabled(is_text, egui::Button::new("Текст и стиль…"))
-                                .clicked()
-                            {
+                        if ui
+                            .add_enabled(
+                                self.selected_text().is_some(),
+                                egui::Button::new("Текст и стиль…"),
+                            )
+                            .clicked()
+                        {
+                            if let Some((index, _)) = self.selected_text() {
                                 self.edit_text(index);
-                                ui.close();
                             }
+                            ui.close();
                         }
                         ui.menu_button("Точность результата", |ui| {
-                            for (label, value) in [
-                                ("Авто (12 цифр)", None),
-                                ("3 значащих цифры", Some(3)),
-                                ("4 значащих цифры", Some(4)),
-                                ("6 значащих цифр", Some(6)),
-                                ("8 значащих цифр", Some(8)),
-                            ] {
-                                if ui
-                                    .selectable_label(self.document.precision == value, label)
-                                    .clicked()
-                                {
-                                    self.apply_precision(value);
-                                    ui.close();
-                                }
-                            }
+                            self.precision_options(ui)
                         });
                     });
                     ui.menu_button("Инструменты", |ui| {
@@ -3222,7 +3240,42 @@ impl Workbench {
             });
     }
 
+    fn selected_text(&self) -> Option<(usize, editing::TextStyle)> {
+        let index = self.selected?;
+        let region = self.document.sheet.regions.get(index)?;
+        if region.imported
+            || region.visual.graphical
+            || region.is_page_break()
+            || region.label == "Ссылка"
+        {
+            return None;
+        }
+        region.text.as_ref()?;
+        Some((
+            index,
+            editing::TextStyle::from_heading_level(region.visual.heading),
+        ))
+    }
+
+    fn precision_options(&mut self, ui: &mut egui::Ui) {
+        for value in RESULT_PRECISIONS {
+            let label = value.map_or_else(
+                || "Авто (12 цифр)".to_owned(),
+                |digits| format!("{digits} значащих цифр"),
+            );
+            if ui
+                .selectable_label(self.document.precision == value, label)
+                .clicked()
+            {
+                self.apply_precision(value);
+                ui.close();
+            }
+        }
+    }
+
     fn toolbar(&mut self, ctx: &egui::Context) {
+        use command_icons::{button, Icon};
+
         egui::TopBottomPanel::top("toolbar")
             .frame(
                 Frame::new()
@@ -3231,62 +3284,113 @@ impl Workbench {
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.;
+                    ui.spacing_mut().item_spacing.x = 2.;
                     let ready = self.load.is_none();
-                    if command_button(ui, "Новый", "Новый лист (Ctrl+N)", ready) {
+                    if button(ui, Icon::New, "Новый лист (Ctrl+N)", ready) {
                         self.request_open(Open::Blank, ctx);
                     }
-                    if command_button(ui, "Открыть", "Открыть лист (Ctrl+O)", ready)
-                    {
+                    if button(ui, Icon::Open, "Открыть лист (Ctrl+O)", ready) {
                         self.request_open(Open::Picker, ctx);
                     }
-                    if command_button(ui, "Сохранить", "Сохранить копию XMCD (Ctrl+S)", ready)
+                    if button(ui, Icon::Save, "Сохранить копию XMCD (Ctrl+S)", ready)
                     {
                         self.save_copy();
                     }
-                    ui.separator();
-                    if command_button(ui, "↶", "Отменить (Ctrl+Z)", !self.undo_stack.is_empty())
-                    {
-                        self.undo();
-                    }
-                    if command_button(ui, "↷", "Повторить (Ctrl+Y)", !self.redo_stack.is_empty())
-                    {
-                        self.redo();
-                    }
-                    if command_button(
+                    if button(
                         ui,
-                        "Копировать",
-                        "Копировать регионы (Ctrl+C)",
-                        !self.selected_ids.is_empty(),
+                        Icon::ExportPdf,
+                        "Экспорт в PDF",
+                        ready && self.pdf_export.is_none(),
                     ) {
+                        self.export_pdf_report_picker(ctx);
+                    }
+                    ui.separator();
+                    let selected = !self.selected_ids.is_empty();
+                    if button(ui, Icon::Cut, "Вырезать регионы (Ctrl+X)", selected) {
+                        self.remove_selected(true);
+                    }
+                    if button(ui, Icon::Copy, "Копировать регионы (Ctrl+C)", selected)
+                    {
                         self.copy_selected();
                     }
-                    if command_button(
+                    if button(
                         ui,
-                        "Вставить",
+                        Icon::Paste,
                         "Вставить регионы (Ctrl+V)",
                         !self.clipboard.is_empty(),
                     ) {
                         self.paste_clipboard();
                     }
                     ui.separator();
-                    let zoom = self.effective_zoom(self.sheet_width);
-                    if command_button(ui, "−", "Уменьшить масштаб", true) {
-                        self.fit = false;
-                        self.zoom = (zoom / 1.17).max(0.50);
+                    if button(
+                        ui,
+                        Icon::Undo,
+                        "Отменить (Ctrl+Z)",
+                        !self.undo_stack.is_empty(),
+                    ) {
+                        self.undo();
                     }
-                    ui.label(format!("{:.0} %", zoom / 1.22 * 100.));
-                    if command_button(ui, "+", "Увеличить масштаб", true) {
-                        self.fit = false;
-                        self.zoom = (zoom * 1.17).min(2.8);
+                    if button(
+                        ui,
+                        Icon::Redo,
+                        "Повторить (Ctrl+Y)",
+                        !self.redo_stack.is_empty(),
+                    ) {
+                        self.redo();
                     }
-                    if ui
-                        .selectable_label(self.fit, "По ширине")
-                        .on_hover_text("Подогнать лист по ширине")
-                        .clicked()
+                    ui.separator();
+                    if button(ui, Icon::Formula, "Вставить формулу", ready) {
+                        self.start_insert(formula_draft(String::new()));
+                    }
+                    if button(ui, Icon::Text, "Вставить текстовый регион", ready)
                     {
-                        self.fit = !self.fit;
+                        self.start_insert(new_text_draft());
                     }
+                    if button(ui, Icon::Graph, "Вставить график X–Y", ready) {
+                        self.apply_tool_action(tool_ribbon::ToolAction::ChartXY);
+                    }
+                    ui.separator();
+                    let zoom = self.effective_zoom(self.sheet_width);
+                    let caption = if self.fit {
+                        "По ширине".to_owned()
+                    } else {
+                        format!("{:.0} %", zoom / NORMAL_ZOOM * 100.)
+                    };
+                    egui::ComboBox::from_id_salt("worksheet_zoom")
+                        .width(98.)
+                        .selected_text(caption)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(self.fit, "По ширине").clicked() {
+                                self.fit = true;
+                            }
+                            ui.separator();
+                            for percent in [50, 75, 100, 125, 150, 200] {
+                                let value = NORMAL_ZOOM * (percent as f32 / 100.);
+                                if ui
+                                    .selectable_label(
+                                        !self.fit && self.zoom == value,
+                                        format!("{percent} %"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.fit = false;
+                                    self.zoom = value;
+                                }
+                            }
+                            ui.separator();
+                            for (label, value) in [
+                                ("Уменьшить", (zoom / 1.17).max(0.50)),
+                                ("Увеличить", (zoom * 1.17).min(2.8)),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    self.fit = false;
+                                    self.zoom = value;
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("Масштаб листа");
                     ui.separator();
                     ui.add(
                         egui::Label::new(
@@ -3298,6 +3402,55 @@ impl Workbench {
                         || self.document.name.clone(),
                         |path| path.display().to_string(),
                     ));
+                });
+            });
+    }
+
+    fn format_bar(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("format_bar")
+            .frame(
+                Frame::new()
+                    .fill(tool_ribbon::PANEL_SURFACE)
+                    .stroke(Stroke::new(1.0_f32, tool_ribbon::BORDER_DARK))
+                    .inner_margin(Margin::symmetric(10, 3)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    let text = self.selected_text();
+                    let label = match text.map(|(_, style)| style) {
+                        Some(editing::TextStyle::Normal) => "Обычный",
+                        Some(editing::TextStyle::Heading1) => "Заголовок 1",
+                        Some(editing::TextStyle::Heading2) => "Заголовок 2",
+                        None => "Текст и стиль…",
+                    };
+                    if ui
+                        .add_enabled(text.is_some(), egui::Button::new(label))
+                        .on_hover_text("Изменить стиль и текст выбранного региона")
+                        .on_disabled_hover_text("Выберите текстовый регион на листе")
+                        .clicked()
+                    {
+                        if let Some((index, _)) = text {
+                            self.edit_text(index);
+                        }
+                    }
+                    ui.separator();
+                    ui.label("Точность");
+                    egui::ComboBox::from_id_salt("result_precision")
+                        .width(80.)
+                        .selected_text(
+                            self.document.precision.map_or_else(
+                                || "Авто".to_owned(),
+                                |digits| format!("{digits} цифр"),
+                            ),
+                        )
+                        .show_ui(ui, |ui| self.precision_options(ui))
+                        .response
+                        .on_hover_text("Число значащих цифр в результатах");
+                    ui.separator();
+                    ui.toggle_value(&mut self.show_grid, "Сетка")
+                        .on_hover_text("Показать сетку листа");
+                    ui.toggle_value(&mut self.show_regions, "Регионы")
+                        .on_hover_text("Показать границы регионов");
                 });
             });
     }
@@ -3679,7 +3832,7 @@ impl Workbench {
         if !self.fit {
             return self.zoom;
         }
-        ((width - 38.) / self.document.extent.x).clamp(0.50, 1.22)
+        ((width - 38.) / self.document.extent.x).clamp(0.50, NORMAL_ZOOM)
     }
 
     fn paper(&mut self, ui: &mut egui::Ui, zoom: f32) {
@@ -4947,14 +5100,6 @@ fn draw_line(
         .on_hover_text(text)
 }
 
-fn command_button(ui: &mut egui::Ui, label: &str, tooltip: &str, enabled: bool) -> bool {
-    let response = ui
-        .add_enabled(enabled, egui::Button::new(label).small())
-        .on_hover_text(tooltip);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tooltip));
-    response.clicked()
-}
-
 impl eframe::App for Workbench {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         tool_ribbon::SHELL_BG.to_normalized_gamma_f32()
@@ -5033,6 +5178,7 @@ impl eframe::App for Workbench {
         self.check_external_file_change(ctx);
         self.menu_bar(ctx);
         self.toolbar(ctx);
+        self.format_bar(ctx);
         self.tool_ribbon_panel(ctx);
         if no_modal {
             self.route_sheet_typing(ctx);
@@ -5047,12 +5193,14 @@ impl eframe::App for Workbench {
                         && (i.key_pressed(Key::Y) || (i.modifiers.shift && i.key_pressed(Key::Z)))
                 }) {
                     self.redo();
+                } else if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::X)) {
+                    self.remove_selected(true);
                 } else if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::C)) {
                     self.copy_selected();
                 } else if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::V)) {
                     self.paste_clipboard();
                 } else if ctx.input(|i| i.key_pressed(Key::Delete)) {
-                    self.delete_selected();
+                    self.remove_selected(false);
                 }
             }
             if !self.tool_search.is_blocking_sheet(ctx) && ctx.input(|i| i.key_pressed(Key::F2)) {
@@ -5446,7 +5594,7 @@ mod tests {
         app.paste_clipboard();
         assert_eq!(app.document.sheet.regions.len(), 2);
 
-        app.delete_selected();
+        app.remove_selected(false);
         assert_eq!(app.document.sheet.regions.len(), 1);
 
         app.undo();
@@ -6161,6 +6309,27 @@ mod tests {
     }
 
     #[test]
+    fn cut_regions_keeps_a_pasteable_copy_and_can_be_undone() {
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        let index = app
+            .document
+            .insert(Pos2::new(12., 12.), editing::NewRegion::Formula("x := 2"))
+            .unwrap();
+        app.select(index);
+        app.remove_selected(true);
+        assert!(app.document.sheet.regions.is_empty());
+        assert_eq!(app.clipboard.len(), 1);
+
+        app.paste_clipboard();
+        assert_eq!(app.document.sheet.input_value(0), Some(2.));
+        app.undo();
+        assert!(app.document.sheet.regions.is_empty());
+        app.undo();
+        assert_eq!(app.document.sheet.input_value(0), Some(2.));
+    }
+
+    #[test]
     fn tool_ribbon_renders_cleanly_at_narrow_width_and_inserts_via_actions() {
         let ctx = egui::Context::default();
         let mut app = Workbench::new(&ctx, None).unwrap();
@@ -6173,6 +6342,7 @@ mod tests {
                 app.tool_search.begin_frame(ctx);
                 app.menu_bar(ctx);
                 app.toolbar(ctx);
+                app.format_bar(ctx);
                 app.tool_ribbon_panel(ctx);
                 app.footer(ctx);
                 app.sidebar(ctx);

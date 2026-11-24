@@ -2078,15 +2078,16 @@ pub fn paint_icon(painter: &Painter, rect: Rect, icon: ToolIcon, fg: Color32, ac
     }
 }
 
+const GROUP_BUTTON_WIDTH: f32 = 34.0;
+const GROUP_SPACING: f32 = 4.0;
+
 fn paint_group_button(
     ui: &mut egui::Ui,
     group: &GroupMeta,
     active: bool,
     highlighted: bool,
-    width: f32,
 ) -> egui::Response {
-    let height = 25.0;
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(GROUP_BUTTON_WIDTH, 25.0), Sense::click());
     let hovered = response.hovered();
     let (fill, border, icon_accent) = if highlighted {
         (
@@ -2136,20 +2137,10 @@ fn paint_group_button(
             SEARCH_HIT_BADGE,
         );
     }
-    let icon_rect = Rect::from_min_size(
-        Pos2::new(rect.left() + 6.0, rect.top() + 5.0),
-        vec2(16.0, 16.0),
-    );
+    let icon_rect = Rect::from_center_size(rect.center(), vec2(17.0, 17.0));
     paint_icon(ui.painter(), icon_rect, group.icon, TEXT_WHITE, icon_accent);
-    ui.painter().text(
-        Pos2::new(icon_rect.right() + 5.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        group.tab_label,
-        FontId::proportional(12.0),
-        TEXT_WHITE,
-    );
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, group.title));
-    response.on_hover_text(group.tooltip)
+    response.on_hover_text(format!("{}\n{}", group.title, group.tooltip))
 }
 
 fn paint_tool_button(
@@ -2269,45 +2260,21 @@ pub fn show_ribbon(
             let search_w = if avail_w < 860.0 { 155.0 } else { 196.0 };
             let search_total_w = search_w + 56.0;
             let toggle_w = 26.0;
-            let tabs_budget = (avail_w - search_total_w - toggle_w - 16.0).max(160.0);
-
-            let tab_widths: Vec<f32> = GROUPS
-                .iter()
-                .map(|g| {
-                    let g_text = ui.painter().layout_no_wrap(
-                        g.tab_label.to_owned(),
-                        FontId::proportional(12.0),
-                        TEXT_WHITE,
-                    );
-                    (g_text.rect.width() + 34.0).max(74.0)
-                })
-                .collect();
-
-            let total_tabs_w: f32 =
-                tab_widths.iter().sum::<f32>() + 4.0 * GROUPS.len().saturating_sub(1) as f32;
-            let mut visible_count = GROUPS.len();
-            if total_tabs_w > tabs_budget {
-                let more_reserve = 78.0;
-                let mut used = 0.0;
-                visible_count = 0;
-                for &w in &tab_widths {
-                    let step = if visible_count == 0 { w } else { w + 4.0 };
-                    if used + step + more_reserve <= tabs_budget || visible_count < 2 {
-                        used += step;
-                        visible_count += 1;
-                    } else {
-                        break;
-                    }
-                }
-            }
+            let tabs_budget = (avail_w - search_total_w - toggle_w - 16.0).max(0.0);
+            let group_step = GROUP_BUTTON_WIDTH + GROUP_SPACING;
+            let all_groups_width = group_step * GROUPS.len() as f32 - GROUP_SPACING;
+            let visible_count = if all_groups_width <= tabs_budget {
+                GROUPS.len()
+            } else {
+                ((tabs_budget - 78.0) / group_step).max(0.0) as usize
+            };
 
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                for i in 0..visible_count {
-                    let group = &GROUPS[i];
+                ui.spacing_mut().item_spacing.x = GROUP_SPACING;
+                for group in &GROUPS[..visible_count] {
                     let is_active = *active_tab == group.tab;
                     let is_hl = highlighted_group == Some(group.tab);
-                    if paint_group_button(ui, group, is_active, is_hl, tab_widths[i]).clicked() {
+                    if paint_group_button(ui, group, is_active, is_hl).clicked() {
                         if *active_tab == group.tab {
                             *expanded = !*expanded;
                         } else {
@@ -2519,20 +2486,13 @@ pub fn show_ribbon(
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.spacing_mut().item_spacing.x = 5.0;
-                                    // Show group badge when active group is in overflow menu
-                                    if visible_count < GROUPS.len()
-                                        && GROUPS[visible_count..]
-                                            .iter()
-                                            .any(|g| g.tab == *active_tab)
-                                    {
-                                        ui.label(
-                                            RichText::new(active_meta.title)
-                                                .size(11.5)
-                                                .strong()
-                                                .color(BLUE_ACCENT_BORDER),
-                                        );
-                                        ui.separator();
-                                    }
+                                    ui.label(
+                                        RichText::new(active_meta.title)
+                                            .size(11.5)
+                                            .strong()
+                                            .color(BLUE_ACCENT_BORDER),
+                                    );
+                                    ui.separator();
 
                                     // Matrix dimension controls directly inside "Вектор и матрица"
                                     if *active_tab == PaletteTab::Matrix {
