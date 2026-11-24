@@ -6,12 +6,18 @@ default-run = "list-rs"
 
 [features]
 default = []
-desktop = ["dep:eframe", "dep:rfd", "roxmltree/positions"]
+mcp = ["roxmltree/positions"]
+desktop = ["dep:eframe", "dep:rfd", "mcp"]
 
 [[bin]]
 name = "list-desktop"
 path = "src/desktop.rs"
 required-features = ["desktop"]
+
+[[bin]]
+name = "list-mcp"
+path = "src/mcp_bin.rs"
+required-features = ["mcp"]
 
 [dependencies]
 roxmltree = { version = "0.21.1", default-features = false, features = ["std"] }

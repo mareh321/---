@@ -1,6 +1,6 @@
 use crate::eval::{ConstraintKind, Datum, Expr, SolveBlockExpr, SolveMode};
 use crate::parse::{self, elements, identifier, kind, named, Compiler, Xml, ML};
-#[cfg(feature = "desktop")]
+#[cfg(feature = "mcp")]
 pub use crate::presentation::RegionVisual;
 use crate::value::{Calc, Value};
 use roxmltree::{Document, Node, ParsingOptions};
@@ -14,9 +14,9 @@ pub struct Region {
     pub label: String,
     pub text: Option<String>,
     pub imported: bool,
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     pub visual: RegionVisual,
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     defines_name: bool,
     input_unit: Option<Value>,
     formula: Option<Calc<Expr>>,
@@ -34,7 +34,7 @@ impl Region {
     }
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "mcp")]
 #[derive(Clone, Debug)]
 pub struct SurfaceGrid {
     pub rows: usize,
@@ -46,6 +46,15 @@ pub struct SurfaceGrid {
     pub z_min: f64,
     pub z_max: f64,
     pub values: Vec<Option<f64>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SnapshotReport {
+    pub ok: bool,
+    pub matched: usize,
+    pub failed: usize,
+    pub skipped: usize,
+    pub mismatches: Vec<String>,
 }
 
 pub struct Sheet {
@@ -419,9 +428,9 @@ impl Sheet {
                     label: String::new(),
                     text: None,
                     imported: false,
-                    #[cfg(feature = "desktop")]
+                    #[cfg(feature = "mcp")]
                     visual: RegionVisual::default(),
-                    #[cfg(feature = "desktop")]
+                    #[cfg(feature = "mcp")]
                     defines_name: false,
                     input_unit: None,
                     formula: None,
@@ -497,9 +506,9 @@ impl Sheet {
             label: String::new(),
             text: None,
             imported: false,
-            #[cfg(feature = "desktop")]
+            #[cfg(feature = "mcp")]
             visual: RegionVisual::new(node),
-            #[cfg(feature = "desktop")]
+            #[cfg(feature = "mcp")]
             defines_name: false,
             input_unit: None,
             formula: None,
@@ -570,7 +579,7 @@ impl Sheet {
                     .collect::<Vec<_>>()
                     .join(" ");
                 region.text = Some(text);
-                #[cfg(feature = "desktop")]
+                #[cfg(feature = "mcp")]
                 {
                     region.text = content.map(|node| region.visual.set_text(node));
                 }
@@ -594,7 +603,7 @@ impl Sheet {
                     *pending_solve = Some(Vec::new());
                     region.label = "Given".into();
                     region.formula = Some(Ok(Expr::Literal(Value::scalar(1.)?)));
-                    #[cfg(feature = "desktop")]
+                    #[cfg(feature = "mcp")]
                     {
                         region.visual.set_formula(statement, false);
                         region.visual.function = true;
@@ -609,7 +618,7 @@ impl Sheet {
                         }
                         region.label = "Ограничение".into();
                         region.formula = Some(Ok(Expr::Literal(Value::scalar(1.)?)));
-                        #[cfg(feature = "desktop")]
+                        #[cfg(feature = "mcp")]
                         {
                             region.visual.set_formula(statement, false);
                             region.visual.function = true;
@@ -620,7 +629,7 @@ impl Sheet {
                 }
                 match (kind(statement), children.as_slice()) {
                     ("define" | "globalDefine", [left, expr, ..]) => {
-                        #[cfg(feature = "desktop")]
+                        #[cfg(feature = "mcp")]
                         {
                             region.defines_name = true;
                         }
@@ -774,14 +783,14 @@ impl Sheet {
                         ))
                     }
                 }
-                #[cfg(feature = "desktop")]
+                #[cfg(feature = "mcp")]
                 region
                     .visual
                     .set_formula(statement, region.input_unit.is_some());
             }
             Some(tag @ ("graph" | "plot" | "xyPlot" | "image" | "picture")) => {
                 region.text = Some(format!("Блок <{tag}> пропущен"));
-                #[cfg(feature = "desktop")]
+                #[cfg(feature = "mcp")]
                 {
                     region.visual.graphical = true;
                 }
@@ -898,7 +907,7 @@ impl Sheet {
         !self.regions[index].imported && self.regions[index].input_unit.is_some()
     }
 
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     pub fn input_value(&self, index: usize) -> Option<f64> {
         let unit = self.regions.get(index)?.input_unit?;
         let actual = self
@@ -912,12 +921,12 @@ impl Sheet {
         actual.in_units(unit).ok()?.real_scalar().ok()
     }
 
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     pub fn edited(&self, index: usize) -> bool {
         self.overrides.get(index).is_some_and(Option::is_some)
     }
 
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     pub fn counts(&self) -> (usize, usize, usize) {
         let inputs = self
             .regions
@@ -938,7 +947,7 @@ impl Sheet {
         (inputs, formulas, errors)
     }
 
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     pub fn skipped_visual_count(&self) -> usize {
         self.regions
             .iter()
@@ -946,7 +955,7 @@ impl Sheet {
             .count()
     }
 
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     pub fn chart_curves(
         &self,
         before: usize,
@@ -1233,7 +1242,7 @@ impl Sheet {
         }
     }
 
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     pub fn surface_grid(
         &self,
         before: usize,
@@ -1423,7 +1432,7 @@ impl Sheet {
         value.to_csv(delimiter, precision.unwrap_or(12))
     }
 
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     pub fn region_real_matrix(&self, index: usize) -> Option<(usize, usize, Vec<f64>)> {
         self.cache
             .get(index)?
@@ -1454,10 +1463,11 @@ impl Sheet {
         Ok((&self.regions[index].label, value.vector_values()?))
     }
 
-    pub fn verify_snapshots(&self) -> bool {
+    pub fn verify_snapshots_report(&self) -> SnapshotReport {
         let mut matched = 0;
         let mut failed = 0;
         let mut skipped = 0;
+        let mut mismatches = Vec::new();
         for (index, region) in self.regions.iter().enumerate() {
             if region.imported {
                 continue;
@@ -1476,24 +1486,41 @@ impl Sheet {
                 Some(actual) if actual.near(expected) => matched += 1,
                 Some(actual) => {
                     failed += 1;
-                    println!(
+                    mismatches.push(format!(
                         "Расхождение в #{} [{}]: {actual} вместо {expected}",
                         index + 1,
                         region.source_id
-                    );
+                    ));
                 }
                 None => {
                     failed += 1;
-                    println!(
+                    mismatches.push(format!(
                         "Нет вычисленного значения для сверки в #{} [{}]",
                         index + 1,
                         region.source_id
-                    );
+                    ));
                 }
             }
         }
-        println!("Сохранённые результаты XMCD. Совпало: {matched}. Расхождений или пропусков расчёта: {failed}. Неподдерживаемых эталонов: {skipped}.");
-        matched > 0 && failed == 0 && skipped == 0
+        SnapshotReport {
+            ok: matched > 0 && failed == 0 && skipped == 0,
+            matched,
+            failed,
+            skipped,
+            mismatches,
+        }
+    }
+
+    pub fn verify_snapshots(&self) -> bool {
+        let report = self.verify_snapshots_report();
+        for line in &report.mismatches {
+            println!("{line}");
+        }
+        println!(
+            "Сохранённые результаты XMCD. Совпало: {}. Расхождений или пропусков расчёта: {}. Неподдерживаемых эталонов: {}.",
+            report.matched, report.failed, report.skipped
+        );
+        report.ok
     }
 
     pub fn display(&self, index: usize) -> Calc<String> {

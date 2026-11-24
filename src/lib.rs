@@ -1,15 +1,19 @@
 pub mod data_io;
-#[cfg(feature = "desktop")]
+#[cfg(feature = "mcp")]
 pub mod editing;
 pub mod engineering;
 mod eval;
 #[cfg(feature = "desktop")]
 pub mod math_editor;
+#[cfg(feature = "mcp")]
+pub mod mcp;
+#[cfg(feature = "mcp")]
+pub mod mcp_json;
 mod parse;
 pub mod plot;
-#[cfg(feature = "desktop")]
+#[cfg(feature = "mcp")]
 mod presentation;
-#[cfg(feature = "desktop")]
+#[cfg(feature = "mcp")]
 pub mod report;
 pub mod sheet;
 pub mod symbolic;
@@ -20,6 +24,7 @@ use std::path::Path;
 
 pub use value::{display_number, Calc};
 pub const DEMO: &str = include_str!("../examples/pressure.xmcd");
+pub const BLANK: &str = include_str!("../examples/blank.xmcd");
 const LIMIT: u64 = 32 * 1024 * 1024;
 
 pub fn read_xml(path: &Path) -> Calc<String> {

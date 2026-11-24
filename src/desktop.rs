@@ -18,7 +18,7 @@ use list_rs::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime};
 
 const INK: Color32 = Color32::from_rgb(26, 42, 54);
 const MUTED: Color32 = Color32::from_rgb(79, 101, 113);
@@ -886,6 +886,9 @@ struct Workbench {
     animation: Option<AnimationState>,
     area_dialog: Option<AreaDialog>,
     textures: HashMap<String, Option<egui::TextureHandle>>,
+    auto_reload: bool,
+    file_stamp: Option<(SystemTime, u64)>,
+    last_watch_check: Instant,
 }
 
 impl Workbench {
@@ -898,6 +901,7 @@ impl Workbench {
         };
         let fit = document.extent.x > 760.;
         let show_inputs = !document.sheet.regions.is_empty();
+        let file_stamp = document.path.as_deref().and_then(file_stamp);
         let status = if document.path.is_some() {
             format!(
                 "Лист открыт · рассчитано формул {}",
@@ -944,6 +948,9 @@ impl Workbench {
             animation: None,
             area_dialog: None,
             textures: HashMap::new(),
+            auto_reload: true,
+            file_stamp,
+            last_watch_check: Instant::now(),
         })
     }
 
@@ -1020,12 +1027,78 @@ impl Workbench {
         self.drag = None;
         self.marquee = None;
         self.error = None;
+        self.file_stamp = self.document.path.as_deref().and_then(file_stamp);
+        self.last_watch_check = Instant::now();
         self.fit = self.document.extent.x > 760.;
         self.zoom = 1.22;
         self.status = format!(
             "Лист открыт · рассчитано формул {}",
             self.document.formulas - self.document.errors
         );
+    }
+
+    fn reload_from_disk_if_changed(&mut self) -> bool {
+        let Some(path) = self.document.path.clone() else {
+            return false;
+        };
+        let Some(stamp) = file_stamp(&path) else {
+            return false;
+        };
+        if self.file_stamp == Some(stamp) {
+            return false;
+        }
+        if self.document.unsaved {
+            self.status = "Файл изменён на диске (Ctrl+R — перезагрузить)".into();
+            return false;
+        }
+        let Ok(updated) = Worksheet::from_path(path) else {
+            return false;
+        };
+        self.file_stamp = Some(stamp);
+        self.document = updated;
+        self.generation = self.generation.wrapping_add(1);
+        self.jump = None;
+        self.textures.clear();
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.sync_selection_from_ids();
+        self.error = None;
+        self.status = format!(
+            "Лист обновлён с диска · рассчитано формул {}",
+            self.document.formulas - self.document.errors
+        );
+        true
+    }
+
+    fn check_external_file_change(&mut self, ctx: &egui::Context) {
+        if !self.auto_reload
+            || self.document.path.is_none()
+            || self.load.is_some()
+            || self.pending.is_some()
+            || self.insertion.is_some()
+            || self.editor.is_some()
+            || self.table_editor.is_some()
+            || self.page_dialog.is_some()
+            || self.area_dialog.is_some()
+            || self.animation.is_some()
+            || self.drag.is_some()
+            || self.marquee.is_some()
+        {
+            return;
+        }
+        if self.last_watch_check.elapsed() >= Duration::from_millis(500) {
+            self.last_watch_check = Instant::now();
+            if self.reload_from_disk_if_changed() {
+                ctx.request_repaint();
+            }
+        }
+        ctx.request_repaint_after(Duration::from_millis(600));
+    }
+
+    fn reload_from_disk(&mut self, ctx: &egui::Context) {
+        if let Some(path) = self.document.path.clone() {
+            self.request_open(Open::File(path), ctx);
+        }
     }
 
     fn select(&mut self, index: usize) {
@@ -2648,6 +2721,16 @@ impl Workbench {
                             ui.close();
                         }
                         ui.separator();
+                        if ui
+                            .add_enabled(
+                                self.document.path.is_some() && self.load.is_none(),
+                                egui::Button::new("Перезагрузить с диска (Ctrl+R)"),
+                            )
+                            .clicked()
+                        {
+                            self.reload_from_disk(ctx);
+                            ui.close();
+                        }
                         if ui.button("Обновить подключения (F5)").clicked() {
                             self.reload_references();
                             ui.close();
@@ -2951,6 +3034,7 @@ impl Workbench {
                         ui.checkbox(&mut self.show_grid, "Сетка листа");
                         ui.checkbox(&mut self.show_regions, "Границы регионов");
                         ui.checkbox(&mut self.print_preview, "Предпросмотр печати (страницы)");
+                        ui.checkbox(&mut self.auto_reload, "Автообновление файла с диска");
                         if ui
                             .add_enabled(
                                 !self.document.input_indices.is_empty(),
@@ -4707,6 +4791,11 @@ fn decode_png_rgba(bytes: &[u8]) -> Option<(usize, usize, Vec<u8>)> {
     Some((width, height, rgba))
 }
 
+fn file_stamp(path: &Path) -> Option<(SystemTime, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
+
 fn file_name(path: &Path) -> String {
     path.file_name()
         .unwrap_or(path.as_os_str())
@@ -4802,6 +4891,9 @@ impl eframe::App for Workbench {
             if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::N)) {
                 self.request_open(Open::Blank, ctx);
             }
+            if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::R)) {
+                self.reload_from_disk(ctx);
+            }
             self.route_sheet_typing(ctx);
             if self.insertion.is_none() && !ctx.wants_keyboard_input() {
                 if ctx.input(|i| i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(Key::Z)) {
@@ -4833,6 +4925,7 @@ impl eframe::App for Workbench {
                 self.request_open(Open::File(path), ctx);
             }
         }
+        self.check_external_file_change(ctx);
         self.menu_bar(ctx);
         self.toolbar(ctx);
         self.footer(ctx);
@@ -5814,5 +5907,46 @@ mod tests {
         assert_eq!(reopened.sheet.display(tc).unwrap(), "212 °F");
         let html = reopened.build_html_report();
         assert!(html.contains("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn auto_reload_picks_up_external_xmcd_updates_and_respects_unsaved_edits() {
+        let path = std::env::temp_dir().join(format!(
+            "list-rs-autoreload-test-{}.xmcd",
+            std::process::id()
+        ));
+        let blank = include_str!("../examples/blank.xmcd");
+        let (xml1, _) =
+            editing::insert_region(blank, 12., 10., editing::NewRegion::Formula("a := 2")).unwrap();
+        let (xml1, _) =
+            editing::insert_region(&xml1, 12., 45., editing::NewRegion::Formula("a^2 =")).unwrap();
+        std::fs::write(&path, &xml1).unwrap();
+
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, Some(path.clone())).unwrap();
+        assert_eq!(app.document.sheet.display(1).unwrap(), "4");
+
+        // Simulate external MCP edit: rewrite file with a := 5 (different length triggers stamp change)
+        let (xml2, _) =
+            editing::insert_region(blank, 12., 10., editing::NewRegion::Formula("a := 50"))
+                .unwrap();
+        let (xml2, _) =
+            editing::insert_region(&xml2, 12., 45., editing::NewRegion::Formula("a^2 =")).unwrap();
+        std::fs::write(&path, &xml2).unwrap();
+
+        assert!(app.reload_from_disk_if_changed());
+        assert_eq!(app.document.sheet.display(1).unwrap(), "2500");
+
+        // Local unsaved edit must NOT be overwritten by auto-reload
+        app.document.update_input(0, Some(3.)).unwrap();
+        assert!(app.document.unsaved);
+        let (xml3, _) =
+            editing::insert_region(blank, 12., 10., editing::NewRegion::Formula("a := 999"))
+                .unwrap();
+        std::fs::write(&path, &xml3).unwrap();
+        assert!(!app.reload_from_disk_if_changed());
+        assert_eq!(app.document.sheet.display(1).unwrap(), "9");
+
+        let _ = std::fs::remove_file(&path);
     }
 }

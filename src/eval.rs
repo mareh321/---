@@ -148,7 +148,7 @@ impl Datum {
         Some((matrix.rows, matrix.cols, nums?))
     }
 
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "mcp")]
     pub fn as_surface_matrix(&self) -> Calc<(usize, usize, Vec<f64>)> {
         let Self::Matrix(matrix) = self else {
             return Err("для графика по матрице требуется матрица не меньше 2×2".into());
@@ -483,7 +483,7 @@ pub struct Function {
     pub body: Expr,
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "mcp")]
 impl Function {
     pub fn sample(&self, cache: &Cache, x: Value) -> Calc<Value> {
         self.body
