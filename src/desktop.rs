@@ -3,6 +3,7 @@
 mod chart_view;
 mod math_view;
 mod plot3d_view;
+mod tool_ribbon;
 
 use eframe::egui::{
     self, vec2, Align, Color32, FontData, FontDefinitions, FontFamily, FontId, Frame, Key, Margin,
@@ -20,17 +21,22 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant, SystemTime};
 
-const INK: Color32 = Color32::from_rgb(26, 42, 54);
-const MUTED: Color32 = Color32::from_rgb(79, 101, 113);
-const ACCENT: Color32 = Color32::from_rgb(0, 104, 97);
-const LINE: Color32 = Color32::from_rgb(218, 228, 232);
-const BG: Color32 = Color32::from_rgb(234, 240, 242);
-const PALE: Color32 = Color32::from_rgb(230, 246, 241);
-const ERROR: Color32 = Color32::from_rgb(161, 41, 33);
+const INK: Color32 = Color32::from_rgb(22, 34, 52);
+const MUTED: Color32 = Color32::from_rgb(76, 94, 116);
+const ACCENT: Color32 = Color32::from_rgb(21, 94, 184);
+const LINE: Color32 = Color32::from_rgb(206, 218, 232);
+const PAPER_CHIP_BG: Color32 = Color32::from_rgb(236, 242, 250);
+const PALE: Color32 = Color32::from_rgb(228, 240, 255);
+const ERROR: Color32 = Color32::from_rgb(176, 36, 36);
 const PAPER: Color32 = Color32::WHITE;
-const INDEX_INK: Color32 = Color32::from_rgb(74, 78, 163);
+const INDEX_INK: Color32 = Color32::from_rgb(56, 72, 168);
 const CROSSHAIR: Color32 = Color32::from_rgb(196, 43, 28);
-const GRID_DOT: Color32 = Color32::from_rgb(214, 224, 229);
+const GRID_DOT: Color32 = Color32::from_rgb(212, 222, 236);
+
+const MENU_BG: Color32 = Color32::from_rgb(13, 22, 38);
+const ERROR_DARK: Color32 = Color32::from_rgb(255, 138, 128);
+const WARN_DARK: Color32 = Color32::from_rgb(255, 222, 138);
+const PAPER_SHADOW: Color32 = Color32::from_rgb(7, 13, 24);
 
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
@@ -63,15 +69,61 @@ fn install_fonts(ctx: &egui::Context) {
         }
     }
     ctx.set_fonts(fonts);
-    let mut theme = egui::Visuals::light();
-    theme.override_text_color = Some(INK);
-    theme.selection.bg_fill = PALE;
-    theme.selection.stroke = Stroke::new(1_f32, ACCENT);
-    theme.panel_fill = PAPER;
-    theme.window_fill = PAPER;
-    theme.widgets.hovered.weak_bg_fill = PALE;
-    theme.widgets.active.weak_bg_fill = PALE;
-    ctx.set_visuals(theme);
+    let mut theme = egui::Visuals::dark();
+    theme.override_text_color = Some(tool_ribbon::TEXT_WHITE);
+    theme.panel_fill = tool_ribbon::PANEL_DARK;
+    theme.window_fill = tool_ribbon::PANEL_SURFACE;
+    theme.window_stroke = Stroke::new(1.0_f32, tool_ribbon::BORDER_DARK);
+    theme.extreme_bg_color = tool_ribbon::INPUT_BG;
+    theme.faint_bg_color = tool_ribbon::PANEL_SURFACE;
+    theme.code_bg_color = tool_ribbon::INPUT_BG;
+    theme.selection.bg_fill = tool_ribbon::BLUE_ACCENT_SOFT;
+    theme.selection.stroke = Stroke::new(1.0_f32, tool_ribbon::BLUE_ACCENT_BORDER);
+    theme.hyperlink_color = tool_ribbon::BLUE_ACCENT_BORDER;
+    theme.error_fg_color = ERROR_DARK;
+    theme.warn_fg_color = WARN_DARK;
+    theme.widgets.noninteractive.bg_fill = tool_ribbon::PANEL_DARK;
+    theme.widgets.noninteractive.weak_bg_fill = tool_ribbon::PANEL_SURFACE;
+    theme.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, tool_ribbon::BORDER_DARK);
+    theme.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, tool_ribbon::TEXT_WHITE);
+    theme.widgets.inactive.bg_fill = tool_ribbon::PANEL_ELEVATED;
+    theme.widgets.inactive.weak_bg_fill = tool_ribbon::PANEL_SURFACE;
+    theme.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, tool_ribbon::BORDER_DARK);
+    theme.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, tool_ribbon::TEXT_WHITE);
+    theme.widgets.hovered.bg_fill = tool_ribbon::PANEL_HOVER;
+    theme.widgets.hovered.weak_bg_fill = tool_ribbon::PANEL_HOVER;
+    theme.widgets.hovered.bg_stroke = Stroke::new(1.1_f32, tool_ribbon::BLUE_ACCENT_BORDER);
+    theme.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, tool_ribbon::TEXT_WHITE);
+    theme.widgets.active.bg_fill = tool_ribbon::BLUE_ACCENT_SOFT;
+    theme.widgets.active.weak_bg_fill = tool_ribbon::BLUE_ACCENT_SOFT;
+    theme.widgets.active.bg_stroke = Stroke::new(1.2_f32, tool_ribbon::BLUE_ACCENT_BORDER);
+    theme.widgets.active.fg_stroke = Stroke::new(1.0_f32, tool_ribbon::TEXT_WHITE);
+    theme.widgets.open.bg_fill = tool_ribbon::PANEL_HOVER;
+    theme.widgets.open.weak_bg_fill = tool_ribbon::PANEL_HOVER;
+    theme.widgets.open.bg_stroke = Stroke::new(1.1_f32, tool_ribbon::BLUE_ACCENT_BORDER);
+    theme.widgets.open.fg_stroke = Stroke::new(1.0_f32, tool_ribbon::TEXT_WHITE);
+    ctx.set_visuals_of(egui::Theme::Dark, theme);
+    ctx.set_theme(egui::Theme::Dark);
+}
+
+fn paper_edit_visuals(ui: &mut egui::Ui) {
+    let v = ui.visuals_mut();
+    v.override_text_color = Some(INK);
+    v.extreme_bg_color = PAPER;
+    v.selection.bg_fill = PALE;
+    v.selection.stroke = Stroke::new(1.0_f32, ACCENT);
+    v.widgets.inactive.bg_fill = PAPER;
+    v.widgets.inactive.weak_bg_fill = PAPER;
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, LINE);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, INK);
+    v.widgets.hovered.bg_fill = PAPER;
+    v.widgets.hovered.weak_bg_fill = PALE;
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, ACCENT);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, INK);
+    v.widgets.active.bg_fill = PAPER;
+    v.widgets.active.weak_bg_fill = PALE;
+    v.widgets.active.bg_stroke = Stroke::new(1.2_f32, ACCENT);
+    v.widgets.active.fg_stroke = Stroke::new(1.0_f32, INK);
 }
 
 struct Worksheet {
@@ -861,6 +913,7 @@ struct Workbench {
     unit_entry: String,
     details: String,
     zoom: f32,
+    sheet_width: f32,
     fit: bool,
     show_inputs: bool,
     status: String,
@@ -876,7 +929,9 @@ struct Workbench {
     drag: Option<DragState>,
     marquee: Option<MarqueeState>,
     show_palette: bool,
+    ribbon_expanded: bool,
     palette_tab: math_view::PaletteTab,
+    tool_search: tool_ribbon::SearchState,
     matrix_rows: usize,
     matrix_cols: usize,
     show_grid: bool,
@@ -923,6 +978,7 @@ impl Workbench {
             unit_entry: String::new(),
             details: String::new(),
             zoom: 1.22,
+            sheet_width: ctx.content_rect().width(),
             fit,
             show_inputs,
             status,
@@ -938,7 +994,9 @@ impl Workbench {
             drag: None,
             marquee: None,
             show_palette: true,
+            ribbon_expanded: false,
             palette_tab: math_view::PaletteTab::Operators,
+            tool_search: tool_ribbon::SearchState::default(),
             matrix_rows: 2,
             matrix_cols: 2,
             show_grid: true,
@@ -1353,7 +1411,11 @@ impl Workbench {
     }
 
     fn route_sheet_typing(&mut self, ctx: &egui::Context) {
-        if self.caret.is_none() || self.insertion.is_some() || ctx.wants_keyboard_input() {
+        if self.caret.is_none()
+            || self.insertion.is_some()
+            || ctx.wants_keyboard_input()
+            || self.tool_search.is_blocking_sheet(ctx)
+        {
             return;
         }
         let typed = ctx.input(|input| {
@@ -1596,7 +1658,7 @@ impl Workbench {
                 ui.add(egui::DragValue::new(&mut dlg.height).range(30.0..=5000.0));
             });
             if let Some(err) = &dlg.error {
-                ui.label(RichText::new(err).color(ERROR));
+                ui.label(RichText::new(err).color(ERROR_DARK));
             }
             ui.add_space(6.);
             ui.horizontal(|ui| {
@@ -1773,7 +1835,7 @@ impl Workbench {
                     );
                 });
                 if let Some(err) = &anim.error {
-                    ui.label(RichText::new(err).color(ERROR).size(12.));
+                    ui.label(RichText::new(err).color(ERROR_DARK).size(12.));
                 }
             });
 
@@ -1936,7 +1998,7 @@ impl Workbench {
                 DraftRegion::Formula { .. } => unreachable!(),
             }
             if let Some(error) = &insert.error {
-                ui.label(RichText::new(error).color(ERROR));
+                ui.label(RichText::new(error).color(ERROR_DARK));
             }
             ui.horizontal(|ui| {
                 (
@@ -2237,7 +2299,7 @@ impl Workbench {
                     "Используйте col(Имя, 0), col(Имя, 1) в формулах и графиках (нумерация с 0).",
                 )
                 .size(11.5)
-                .color(MUTED),
+                .color(tool_ribbon::TEXT_MUTED),
             );
             ui.add_space(6.);
             egui::ScrollArea::both()
@@ -2248,7 +2310,7 @@ impl Workbench {
                         .striped(true)
                         .spacing(vec2(4., 4.))
                         .show(ui, |ui| {
-                            ui.label(RichText::new("#").color(MUTED).size(11.));
+                            ui.label(RichText::new("#").color(tool_ribbon::TEXT_MUTED).size(11.));
                             for c in 0..table.cols {
                                 let hdr = table
                                     .headers
@@ -2256,11 +2318,20 @@ impl Workbench {
                                     .filter(|h| !h.is_empty())
                                     .cloned()
                                     .unwrap_or_else(|| format!("col {c}"));
-                                ui.label(RichText::new(hdr).strong().size(11.5).color(ACCENT));
+                                ui.label(
+                                    RichText::new(hdr)
+                                        .strong()
+                                        .size(11.5)
+                                        .color(tool_ribbon::BLUE_ACCENT_BORDER),
+                                );
                             }
                             ui.end_row();
                             for r in 0..table.rows {
-                                ui.label(RichText::new(format!("{r}")).color(MUTED).size(11.));
+                                ui.label(
+                                    RichText::new(format!("{r}"))
+                                        .color(tool_ribbon::TEXT_MUTED)
+                                        .size(11.),
+                                );
                                 for c in 0..table.cols {
                                     let idx = r * table.cols + c;
                                     ui.add(
@@ -2275,7 +2346,7 @@ impl Workbench {
                 });
             if let Some(error) = &table.error {
                 ui.add_space(4.);
-                ui.label(RichText::new(error).color(ERROR));
+                ui.label(RichText::new(error).color(ERROR_DARK));
             }
             ui.add_space(6.);
             ui.horizontal(|ui| {
@@ -2384,7 +2455,9 @@ impl Workbench {
                 );
                 if editor.focus {
                     editor.focus = false;
-                } else if math_view::handle_keyboard(ctx, &mut editor.math) {
+                } else if !self.tool_search.is_blocking_sheet(ctx)
+                    && math_view::handle_keyboard(ctx, &mut editor.math)
+                {
                     editor.draft = editor.math.to_source();
                     editor.synced_draft = editor.draft.clone();
                 }
@@ -2393,10 +2466,13 @@ impl Workbench {
                     RichText::new(format!("Запись: {}", editor.draft))
                         .monospace()
                         .size(11.5)
-                        .color(MUTED),
+                        .color(tool_ribbon::TEXT_MUTED),
                 );
             } else {
-                ui.label(RichText::new("p := F / S  или  sqrt(a^2 + b^2) =").color(MUTED));
+                ui.label(
+                    RichText::new("p := F / S  или  sqrt(a^2 + b^2) =")
+                        .color(tool_ribbon::TEXT_MUTED),
+                );
                 ui.add_space(4.);
                 let response = ui.add(
                     TextEdit::multiline(&mut editor.draft)
@@ -2416,7 +2492,7 @@ impl Workbench {
                 }
             }
             if let Some(error) = &editor.error {
-                ui.label(RichText::new(error).color(ERROR));
+                ui.label(RichText::new(error).color(ERROR_DARK));
             }
             ui.add_space(4.);
             let mut apply = false;
@@ -2616,62 +2692,62 @@ impl Workbench {
         });
     }
 
-    fn palette_panel(&mut self, ctx: &egui::Context) {
+    fn apply_tool_action(&mut self, action: tool_ribbon::ToolAction) {
+        match action {
+            tool_ribbon::ToolAction::Math(act) => self.apply_palette_action(act),
+            tool_ribbon::ToolAction::CustomMatrix => {
+                let (rows, cols) = (self.matrix_rows, self.matrix_cols);
+                self.apply_palette_action(math_view::PaletteAction::Matrix(rows, cols));
+            }
+            tool_ribbon::ToolAction::ChartXY => {
+                self.start_insert(DraftRegion::Chart(Box::default()));
+            }
+            tool_ribbon::ToolAction::ChartVectors => {
+                self.start_insert(DraftRegion::Chart(Box::new(
+                    chart_view::Draft::vectors_preset(),
+                )));
+            }
+            tool_ribbon::ToolAction::ChartParametric => {
+                self.start_insert(DraftRegion::Chart(Box::new(
+                    chart_view::Draft::parametric_preset(),
+                )));
+            }
+            tool_ribbon::ToolAction::ChartPolar => {
+                self.start_insert(DraftRegion::Chart(Box::new(
+                    chart_view::Draft::polar_preset(),
+                )));
+            }
+            tool_ribbon::ToolAction::Plot3dSurface => {
+                self.start_insert(DraftRegion::Plot3d(Box::new(
+                    plot3d_view::Draft3d::default_surface(),
+                )));
+            }
+            tool_ribbon::ToolAction::Plot3dContour => {
+                self.start_insert(DraftRegion::Plot3d(Box::new(
+                    plot3d_view::Draft3d::default_contour(),
+                )));
+            }
+            tool_ribbon::ToolAction::Table => {
+                self.table_editor = Some(TableEditor::empty("Data", 3, 2));
+            }
+        }
+    }
+
+    fn tool_ribbon_panel(&mut self, ctx: &egui::Context) {
         if !self.show_palette {
             return;
         }
-        egui::SidePanel::left("mathcad_palette")
-            .resizable(false)
-            .exact_width(166.)
-            .frame(Frame::new().fill(PAPER).inner_margin(Margin::same(10)))
-            .show(ctx, |ui| {
-                ui.label(
-                    RichText::new("Палитры Mathcad")
-                        .strong()
-                        .size(13.)
-                        .color(ACCENT),
-                );
-                ui.add_space(4.);
-                if let Some(action) = math_view::mathcad_palette_ui(
-                    ui,
-                    &mut self.palette_tab,
-                    &mut self.matrix_rows,
-                    &mut self.matrix_cols,
-                ) {
-                    self.apply_palette_action(action);
-                    ctx.request_repaint();
-                }
-                ui.add_space(10.);
-                ui.separator();
-                ui.add_space(6.);
-                ui.label(RichText::new("Регионы").strong().size(12.).color(MUTED));
-                ui.add_space(4.);
-                let w = ui.available_width();
-                if ui
-                    .add_sized([w, 24.], egui::Button::new("+ Формула"))
-                    .clicked()
-                {
-                    self.start_insert(formula_draft(String::new()));
-                }
-                if ui
-                    .add_sized([w, 24.], egui::Button::new("+ Текст"))
-                    .clicked()
-                {
-                    self.start_insert(new_text_draft());
-                }
-                if ui
-                    .add_sized([w, 24.], egui::Button::new("+ График X–Y"))
-                    .clicked()
-                {
-                    self.start_insert(DraftRegion::Chart(Box::default()));
-                }
-                if ui
-                    .add_sized([w, 24.], egui::Button::new("+ Таблица / CSV"))
-                    .clicked()
-                {
-                    self.table_editor = Some(TableEditor::empty("Data", 3, 2));
-                }
-            });
+        if let Some(action) = tool_ribbon::show_ribbon(
+            ctx,
+            &mut self.palette_tab,
+            &mut self.ribbon_expanded,
+            &mut self.matrix_rows,
+            &mut self.matrix_cols,
+            &mut self.tool_search,
+        ) {
+            self.apply_tool_action(action);
+            ctx.request_repaint();
+        }
     }
 
     fn menu_bar(&mut self, ctx: &egui::Context) {
@@ -2679,7 +2755,8 @@ impl Workbench {
             .exact_height(26.)
             .frame(
                 Frame::new()
-                    .fill(Color32::from_rgb(245, 248, 250))
+                    .fill(MENU_BG)
+                    .stroke(Stroke::new(1.0_f32, tool_ribbon::BORDER_DARK))
                     .inner_margin(Margin::symmetric(10, 3)),
             )
             .show(ctx, |ui| {
@@ -3050,7 +3127,7 @@ impl Workbench {
                             ui.close();
                         }
                         ui.separator();
-                        ui.checkbox(&mut self.show_palette, "Палитры Mathcad");
+                        ui.checkbox(&mut self.show_palette, "Панель инструментов");
                         ui.checkbox(&mut self.show_inputs, "Панель входов и инспектор");
                         ui.separator();
                         if ui.button("Масштаб 100 %").clicked() {
@@ -3061,7 +3138,27 @@ impl Workbench {
                         if ui.checkbox(&mut self.fit, "По ширине листа").clicked() {
                             ui.close();
                         }
-                        ui.separator();
+                    });
+                    ui.menu_button("Формат", |ui| {
+                        if ui.button("Параметры страницы и колонтитулы…").clicked()
+                        {
+                            self.page_dialog = Some(self.document.page_settings.clone());
+                            ui.close();
+                        }
+                        if let Some(index) = self.selected {
+                            let region = &self.document.sheet.regions[index];
+                            let is_text = region.text.is_some()
+                                && !region.visual.graphical
+                                && !region.is_page_break()
+                                && region.label != "Ссылка";
+                            if ui
+                                .add_enabled(is_text, egui::Button::new("Текст и стиль…"))
+                                .clicked()
+                            {
+                                self.edit_text(index);
+                                ui.close();
+                            }
+                        }
                         ui.menu_button("Точность результата", |ui| {
                             for (label, value) in [
                                 ("Авто (12 цифр)", None),
@@ -3080,75 +3177,127 @@ impl Workbench {
                             }
                         });
                     });
+                    ui.menu_button("Инструменты", |ui| {
+                        if ui.button("Поиск инструментов (Ctrl+K)").clicked() {
+                            self.show_palette = true;
+                            self.tool_search.request_focus(ctx);
+                            ui.close();
+                        }
+                        ui.separator();
+                        for group in tool_ribbon::GROUPS {
+                            if ui
+                                .button(group.title)
+                                .on_hover_text(group.tooltip)
+                                .clicked()
+                            {
+                                self.show_palette = true;
+                                self.palette_tab = group.tab;
+                                self.ribbon_expanded = true;
+                                ui.close();
+                            }
+                        }
+                    });
+                    ui.menu_button("Символьные операции", |ui| {
+                        for item in tool_ribbon::tools_in_group(math_view::PaletteTab::Symbolic) {
+                            if item.id.starts_with("sym.")
+                                && ui.button(item.name).on_hover_text(item.tooltip).clicked()
+                            {
+                                self.apply_tool_action(item.action);
+                                ui.close();
+                            }
+                        }
+                    });
+                    ui.menu_button("Справка", |ui| {
+                        ui.label(format!("Лист {}", env!("CARGO_PKG_VERSION")));
+                        ui.separator();
+                        ui.label("Ctrl+K — поиск инструмента");
+                        ui.label("F2 — правка выбранной формулы");
+                        ui.label("Tab и Shift+Tab — переход между полями формулы");
+                        if ui.button("Открыть пример с графиком").clicked() {
+                            self.request_open(Open::Demo, ctx);
+                            ui.close();
+                        }
+                    });
                 });
             });
     }
 
     fn toolbar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("toolbar")
-            .exact_height(56.)
             .frame(
                 Frame::new()
-                    .fill(PAPER)
-                    .inner_margin(Margin::symmetric(18, 10)),
+                    .fill(tool_ribbon::PANEL_DARK)
+                    .inner_margin(Margin::symmetric(10, 3)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("ЛИСТ").size(20.).strong().color(ACCENT));
+                    ui.spacing_mut().item_spacing.x = 4.;
+                    let ready = self.load.is_none();
+                    if command_button(ui, "Новый", "Новый лист (Ctrl+N)", ready) {
+                        self.request_open(Open::Blank, ctx);
+                    }
+                    if command_button(ui, "Открыть", "Открыть лист (Ctrl+O)", ready)
+                    {
+                        self.request_open(Open::Picker, ctx);
+                    }
+                    if command_button(ui, "Сохранить", "Сохранить копию XMCD (Ctrl+S)", ready)
+                    {
+                        self.save_copy();
+                    }
                     ui.separator();
-                    let title_width = (ui.available_width() - 477.).max(130.);
-                    ui.allocate_ui_with_layout(
-                        vec2(title_width, 34.),
-                        egui::Layout::top_down(Align::Min),
-                        |ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(&self.document.name).strong().size(16.),
-                                )
-                                .truncate(),
-                            );
-                            if let Some(path) = &self.document.path {
-                                ui.label(RichText::new("Лист Mathcad").size(11.).color(MUTED))
-                                    .on_hover_text(path.display().to_string());
-                            } else {
-                                ui.label(RichText::new("Рабочий лист").size(11.).color(MUTED));
-                            }
-                        },
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                        let open =
-                            egui::Button::new(RichText::new("Открыть…").color(PAPER).strong())
-                                .fill(ACCENT);
-                        if ui
-                            .add_enabled(self.load.is_none(), open)
-                            .on_hover_text("Ctrl+O")
-                            .clicked()
-                        {
-                            self.request_open(Open::Picker, ctx);
-                        }
-                        if ui.button("Новый").on_hover_text("Ctrl+N").clicked() {
-                            self.request_open(Open::Blank, ctx);
-                        }
-                        if ui
-                            .add_enabled(self.load.is_none(), egui::Button::new("Сохранить копию…"))
-                            .on_hover_text("Ctrl+S")
-                            .clicked()
-                        {
-                            self.save_copy();
-                        }
-                        if ui
-                            .add_enabled(self.load.is_none(), egui::Button::new("Пример"))
-                            .clicked()
-                        {
-                            self.request_open(Open::Demo, ctx);
-                        }
-                        if ui
-                            .selectable_label(self.show_inputs, "Панель входов")
-                            .clicked()
-                        {
-                            self.show_inputs = !self.show_inputs;
-                        }
-                    });
+                    if command_button(ui, "↶", "Отменить (Ctrl+Z)", !self.undo_stack.is_empty())
+                    {
+                        self.undo();
+                    }
+                    if command_button(ui, "↷", "Повторить (Ctrl+Y)", !self.redo_stack.is_empty())
+                    {
+                        self.redo();
+                    }
+                    if command_button(
+                        ui,
+                        "Копировать",
+                        "Копировать регионы (Ctrl+C)",
+                        !self.selected_ids.is_empty(),
+                    ) {
+                        self.copy_selected();
+                    }
+                    if command_button(
+                        ui,
+                        "Вставить",
+                        "Вставить регионы (Ctrl+V)",
+                        !self.clipboard.is_empty(),
+                    ) {
+                        self.paste_clipboard();
+                    }
+                    ui.separator();
+                    let zoom = self.effective_zoom(self.sheet_width);
+                    if command_button(ui, "−", "Уменьшить масштаб", true) {
+                        self.fit = false;
+                        self.zoom = (zoom / 1.17).max(0.50);
+                    }
+                    ui.label(format!("{:.0} %", zoom / 1.22 * 100.));
+                    if command_button(ui, "+", "Увеличить масштаб", true) {
+                        self.fit = false;
+                        self.zoom = (zoom * 1.17).min(2.8);
+                    }
+                    if ui
+                        .selectable_label(self.fit, "По ширине")
+                        .on_hover_text("Подогнать лист по ширине")
+                        .clicked()
+                    {
+                        self.fit = !self.fit;
+                    }
+                    ui.separator();
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&self.document.name).color(tool_ribbon::TEXT_MUTED),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(self.document.path.as_deref().map_or_else(
+                        || self.document.name.clone(),
+                        |path| path.display().to_string(),
+                    ));
                 });
             });
     }
@@ -3157,19 +3306,24 @@ impl Workbench {
         egui::TopBottomPanel::bottom("status")
             .frame(
                 Frame::new()
-                    .fill(PAPER)
-                    .inner_margin(Margin::symmetric(18, 7)),
+                    .fill(MENU_BG)
+                    .stroke(Stroke::new(1.0_f32, tool_ribbon::BORDER_DARK))
+                    .inner_margin(Margin::symmetric(14, 6)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     if let Some(error) = &self.error {
                         ui.add(
-                            egui::Label::new(RichText::new(error).color(ERROR).size(12.))
+                            egui::Label::new(RichText::new(error).color(ERROR_DARK).size(12.))
                                 .truncate(),
                         )
                         .on_hover_text(error);
                     } else {
-                        ui.label(RichText::new(&self.status).color(MUTED).size(12.));
+                        ui.label(
+                            RichText::new(&self.status)
+                                .color(tool_ribbon::TEXT_MUTED)
+                                .size(12.),
+                        );
                     }
                     ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                         let summary = if self.document.skipped_visual > 0 {
@@ -3188,10 +3342,18 @@ impl Workbench {
                                 self.document.errors
                             )
                         };
-                        ui.label(RichText::new(summary).color(MUTED).size(12.));
+                        ui.label(
+                            RichText::new(summary)
+                                .color(tool_ribbon::TEXT_MUTED)
+                                .size(12.),
+                        );
                         if self.document.unsaved {
                             ui.separator();
-                            ui.label(RichText::new("Есть изменения").color(ACCENT).size(12.));
+                            ui.label(
+                                RichText::new("Есть изменения")
+                                    .color(tool_ribbon::BLUE_ACCENT_BORDER)
+                                    .size(12.),
+                            );
                         }
                     });
                 });
@@ -3204,16 +3366,21 @@ impl Workbench {
         }
         egui::SidePanel::right("inputs")
             .resizable(true)
-            .default_width(276.)
-            .min_width(225.)
-            .frame(Frame::new().fill(PAPER).inner_margin(Margin::same(14)))
+            .default_width(270.)
+            .min_width(215.)
+            .frame(
+                Frame::new()
+                    .fill(tool_ribbon::PANEL_DARK)
+                    .stroke(Stroke::new(1.0_f32, tool_ribbon::BORDER_DARK))
+                    .inner_margin(Margin::same(12)),
+            )
             .show(ctx, |ui| {
-                ui.heading(RichText::new("Входные значения").size(17.));
+                ui.heading(RichText::new("Входные значения").size(16.5));
                 ui.add_space(5.);
                 if self.document.input_indices.is_empty() {
                     ui.label(
                         RichText::new("В листе нет доступных для изменения входов.")
-                            .color(MUTED)
+                            .color(tool_ribbon::TEXT_MUTED)
                             .size(12.),
                     );
                 } else {
@@ -3268,7 +3435,7 @@ impl Workbench {
                     ui.label(
                         RichText::new("Выберите формулу или значение на листе.")
                             .size(12.)
-                            .color(MUTED),
+                            .color(tool_ribbon::TEXT_MUTED),
                     );
                     return;
                 };
@@ -3276,7 +3443,7 @@ impl Workbench {
                 ui.label(
                     RichText::new(format!("#{} · XMCD {}", index + 1, region.source_id))
                         .size(11.)
-                        .color(MUTED),
+                        .color(tool_ribbon::TEXT_MUTED),
                 );
                 let input = self.document.sheet.editable(index);
                 if !region.visual.formula.is_empty() && !input {
@@ -3315,7 +3482,11 @@ impl Workbench {
                     ui.add_space(6.);
                     let mut set_unit_action: Option<Option<String>> = None;
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Ед.:").size(12.).color(MUTED));
+                        ui.label(
+                            RichText::new("Ед.:")
+                                .size(12.)
+                                .color(tool_ribbon::TEXT_MUTED),
+                        );
                         let resp = ui.add(
                             TextEdit::singleline(&mut self.unit_entry)
                                 .desired_width(82.)
@@ -3357,7 +3528,11 @@ impl Workbench {
                     if let Some(plot) = self.document.plots.get_mut(&index) {
                         ui.add_space(4.);
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Приближение:").size(12.).color(MUTED));
+                            ui.label(
+                                RichText::new("Приближение:")
+                                    .size(12.)
+                                    .color(tool_ribbon::TEXT_MUTED),
+                            );
                             if ui.small_button("−").clicked() {
                                 plot.zoom = (plot.zoom / 1.4).max(0.25);
                             }
@@ -3384,7 +3559,11 @@ impl Workbench {
                             let (yaw, pitch) = (plot3d.spec.yaw_deg, plot3d.spec.pitch_deg);
                             ui.add_space(4.);
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("Ракурс:").size(12.).color(MUTED));
+                                ui.label(
+                                    RichText::new("Ракурс:")
+                                        .size(12.)
+                                        .color(tool_ribbon::TEXT_MUTED),
+                                );
                                 if ui.small_button("◀").clicked() {
                                     new_angles = Some((yaw - 15.0, pitch));
                                 }
@@ -3412,7 +3591,7 @@ impl Workbench {
                     ui.label(
                         RichText::new("Enter в поле на листе применяет число.")
                             .size(12.)
-                            .color(MUTED),
+                            .color(tool_ribbon::TEXT_MUTED),
                     );
                     if ui
                         .add_enabled(
@@ -3446,96 +3625,22 @@ impl Workbench {
 
     fn workspace(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default()
-            .frame(Frame::new().fill(BG))
+            .frame(Frame::new().fill(tool_ribbon::SHELL_BG))
             .show(ctx, |ui| {
-                Frame::new()
-                    .fill(BG)
-                    .inner_margin(Margin::symmetric(15, 6))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            if ui.button("+ Формула").clicked() {
-                                self.start_insert(formula_draft(String::new()));
-                            }
-                            if ui.button("+ Текст").clicked() {
-                                self.start_insert(new_text_draft());
-                            }
-                            if ui.button("+ График").clicked() {
-                                self.start_insert(DraftRegion::Chart(Box::default()));
-                            }
-                            ui.separator();
-                            if ui
-                                .add_enabled(!self.undo_stack.is_empty(), egui::Button::new("↩"))
-                                .on_hover_text("Отменить (Ctrl+Z)")
-                                .clicked()
-                            {
-                                self.undo();
-                            }
-                            if ui
-                                .add_enabled(!self.redo_stack.is_empty(), egui::Button::new("↪"))
-                                .on_hover_text("Повторить (Ctrl+Y)")
-                                .clicked()
-                            {
-                                self.redo();
-                            }
-                            if ui
-                                .add_enabled(
-                                    !self.selected_ids.is_empty(),
-                                    egui::Button::new("Удалить"),
-                                )
-                                .on_hover_text("Удалить выбранные регионы (Delete)")
-                                .clicked()
-                            {
-                                self.delete_selected();
-                            }
-                            ui.separator();
-                            let zoom = self.effective_zoom(ui.available_width());
-                            if ui.button("−").on_hover_text("Уменьшить").clicked() {
-                                self.fit = false;
-                                self.zoom = (zoom / 1.17).max(0.50);
-                            }
-                            ui.label(
-                                RichText::new(format!("{:.0} %", zoom / 1.22 * 100.))
-                                    .size(12.)
-                                    .color(MUTED),
-                            );
-                            if ui.button("+").on_hover_text("Увеличить").clicked() {
-                                self.fit = false;
-                                self.zoom = (zoom * 1.17).min(2.8);
-                            }
-                            if ui.selectable_label(self.fit, "По ширине").clicked() {
-                                self.fit = !self.fit;
-                            }
-                            ui.separator();
-                            if ui
-                                .selectable_label(self.show_grid, "Сетка")
-                                .on_hover_text("Показать или скрыть сетку листа")
-                                .clicked()
-                            {
-                                self.show_grid = !self.show_grid;
-                            }
-                            if ui
-                                .selectable_label(self.show_regions, "Регионы")
-                                .on_hover_text("Показать границы всех регионов (как в Mathcad 15)")
-                                .clicked()
-                            {
-                                self.show_regions = !self.show_regions;
-                            }
-                            if ui
-                                .selectable_label(self.show_palette, "Палитры")
-                                .on_hover_text("Показать или скрыть математические палитры")
-                                .clicked()
-                            {
-                                self.show_palette = !self.show_palette;
-                            }
-                        });
-                    });
                 if self.document.errors > 0 || self.document.skipped_visual > 0 {
-                    let banner_bg = if self.document.errors > 0 {
-                        Color32::from_rgb(253, 238, 236)
+                    let (banner_bg, banner_border, banner_ink) = if self.document.errors > 0 {
+                        (
+                            Color32::from_rgb(76, 28, 36),
+                            ERROR_DARK,
+                            Color32::from_rgb(255, 214, 210),
+                        )
                     } else {
-                        Color32::from_rgb(248, 244, 228)
+                        (
+                            Color32::from_rgb(66, 52, 22),
+                            WARN_DARK,
+                            Color32::from_rgb(255, 236, 179),
+                        )
                     };
-                    let banner_ink = if self.document.errors > 0 { ERROR } else { INK };
                     let mut parts = Vec::new();
                     if self.document.errors > 0 {
                         parts.push(format!(
@@ -3551,7 +3656,8 @@ impl Workbench {
                     }
                     Frame::new()
                         .fill(banner_bg)
-                        .inner_margin(Margin::symmetric(15, 5))
+                        .stroke(Stroke::new(1.0_f32, banner_border))
+                        .inner_margin(Margin::symmetric(14, 5))
                         .show(ui, |ui| {
                             ui.label(
                                 RichText::new(parts.join(" · "))
@@ -3560,7 +3666,8 @@ impl Workbench {
                             );
                         });
                 }
-                let zoom = self.effective_zoom(ui.available_width());
+                self.sheet_width = ui.available_width();
+                let zoom = self.effective_zoom(self.sheet_width);
                 egui::ScrollArea::both()
                     .id_salt(("sheet_view", self.generation))
                     .auto_shrink([false, false])
@@ -3592,12 +3699,12 @@ impl Workbench {
             page_size,
         );
         let painter = ui.painter();
-        painter.rect_filled(page.translate(vec2(2., 3.)), 8., LINE);
+        painter.rect_filled(page.translate(vec2(3., 4.)), 8., PAPER_SHADOW);
         painter.rect(
             page,
             8.,
             PAPER,
-            Stroke::new(1_f32, LINE),
+            Stroke::new(1.0_f32, tool_ribbon::BORDER_DARK),
             StrokeKind::Inside,
         );
         if self.show_grid {
@@ -3685,14 +3792,14 @@ impl Workbench {
                 ui.painter().rect_stroke(
                     body_rect,
                     3.,
-                    Stroke::new(1.0_f32, Color32::from_rgb(198, 218, 214)),
+                    Stroke::new(1.0_f32, Color32::from_rgb(186, 208, 236)),
                     StrokeKind::Inside,
                 );
             }
             ui.painter().rect(
                 bar,
                 4.,
-                Color32::from_rgb(236, 245, 243),
+                Color32::from_rgb(232, 241, 253),
                 Stroke::new(1.0_f32, ACCENT),
                 StrokeKind::Inside,
             );
@@ -3989,15 +4096,20 @@ impl Workbench {
                     let edit_rect =
                         Rect::from_min_size(origin, vec2(edit_width, chip.height() - 4.));
                     let id = egui::Id::new(("entry", self.generation, index));
-                    let response = ui.put(
-                        edit_rect,
-                        TextEdit::singleline(&mut self.entry)
-                            .id(id)
-                            .char_limit(80)
-                            .font(font.clone())
-                            .desired_width(edit_width)
-                            .margin(Margin::symmetric(4, 1)),
-                    );
+                    let response = ui
+                        .scope(|ui| {
+                            paper_edit_visuals(ui);
+                            ui.put(
+                                edit_rect,
+                                TextEdit::singleline(&mut self.entry)
+                                    .id(id)
+                                    .char_limit(80)
+                                    .font(font.clone())
+                                    .desired_width(edit_width)
+                                    .margin(Margin::symmetric(4, 1)),
+                            )
+                        })
+                        .inner;
                     if !unit.is_empty() {
                         ui.painter().text(
                             Pos2::new(edit_rect.right() + 4., chip.center().y),
@@ -4007,7 +4119,8 @@ impl Workbench {
                             MUTED,
                         );
                     }
-                    if (response.has_focus() || response.lost_focus())
+                    if !self.tool_search.enter_consumed
+                        && (response.has_focus() || response.lost_focus())
                         && ui.input(|i| i.key_pressed(Key::Enter))
                     {
                         submit = Some(index);
@@ -4034,7 +4147,7 @@ impl Workbench {
                     ui.painter().rect(
                         box_rect,
                         5.,
-                        BG,
+                        PAPER_CHIP_BG,
                         Stroke::new(1_f32, LINE),
                         StrokeKind::Inside,
                     );
@@ -4297,7 +4410,7 @@ impl Workbench {
             ui.painter().rect(
                 sel_rect,
                 2.,
-                Color32::from_rgba_unmultiplied(0, 104, 97, 28),
+                Color32::from_rgba_unmultiplied(37, 112, 218, 34),
                 Stroke::new(1.0_f32, ACCENT),
                 StrokeKind::Inside,
             );
@@ -4504,22 +4617,29 @@ impl Workbench {
             insert.focus = true;
         }
 
+        let search_blocks = self.tool_search.is_blocking_sheet(ui.ctx());
         let (field, enter) = if *text_mode {
             let field = Rect::from_min_size(point, vec2(max_w, 27.));
-            let response = ui.put(
-                field,
-                TextEdit::singleline(text)
-                    .font(FontId::monospace(15.))
-                    .char_limit(4096)
-                    .desired_width(max_w)
-                    .hint_text("Формула  x := 2  или  x^2 ="),
-            );
+            let response = ui
+                .scope(|ui| {
+                    paper_edit_visuals(ui);
+                    ui.put(
+                        field,
+                        TextEdit::singleline(text)
+                            .font(FontId::monospace(15.))
+                            .char_limit(4096)
+                            .desired_width(max_w)
+                            .hint_text("Формула  x := 2  или  x^2 ="),
+                    )
+                })
+                .inner;
             if insert.focus {
                 ui.scroll_to_rect(field, Some(Align::Center));
                 response.request_focus();
                 insert.focus = false;
             }
-            let enter = (response.has_focus() || response.lost_focus())
+            let enter = !search_blocks
+                && (response.has_focus() || response.lost_focus())
                 && ui.input(|input| input.key_pressed(Key::Enter));
             (field, enter)
         } else {
@@ -4570,14 +4690,15 @@ impl Workbench {
                 math,
                 style,
                 click_pos,
-                true,
+                !search_blocks,
             );
             if insert.focus {
                 insert.focus = false;
-            } else if math_view::handle_keyboard(ui.ctx(), math) {
+            } else if !search_blocks && math_view::handle_keyboard(ui.ctx(), math) {
                 *text = math.to_source();
             }
-            let enter = ui.input(|input| input.key_pressed(Key::Enter) && !input.modifiers.shift);
+            let enter = !search_blocks
+                && ui.input(|input| input.key_pressed(Key::Enter) && !input.modifiers.shift);
             (field, enter)
         };
 
@@ -4598,7 +4719,7 @@ impl Workbench {
                 }
             }
         }
-        if ui.input(|input| input.key_pressed(Key::Escape)) {
+        if !search_blocks && ui.input(|input| input.key_pressed(Key::Escape)) {
             return;
         }
         if let Some(error) = &insert.error {
@@ -4826,12 +4947,21 @@ fn draw_line(
         .on_hover_text(text)
 }
 
+fn command_button(ui: &mut egui::Ui, label: &str, tooltip: &str, enabled: bool) -> bool {
+    let response = ui
+        .add_enabled(enabled, egui::Button::new(label).small())
+        .on_hover_text(tooltip);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tooltip));
+    response.clicked()
+}
+
 impl eframe::App for Workbench {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        BG.to_normalized_gamma_f32()
+        tool_ribbon::SHELL_BG.to_normalized_gamma_f32()
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.tool_search.begin_frame(ctx);
         if let Some(receiver) = &self.pdf_export {
             let result = match receiver.try_recv() {
                 Ok(result) => Some(result),
@@ -4876,12 +5006,17 @@ impl eframe::App for Workbench {
             self.pending = Some(Open::Close);
             self.editor = None;
         }
-        if self.pending.is_none()
+        let no_modal = self.pending.is_none()
             && self.editor.is_none()
             && self.table_editor.is_none()
             && self.page_dialog.is_none()
-            && self.load.is_none()
-        {
+            && self.area_dialog.is_none()
+            && self.load.is_none();
+        if no_modal {
+            if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::K)) {
+                self.show_palette = true;
+                self.tool_search.request_focus(ctx);
+            }
             if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::O)) {
                 self.request_open(Open::Picker, ctx);
             }
@@ -4894,8 +5029,17 @@ impl eframe::App for Workbench {
             if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::R)) {
                 self.reload_from_disk(ctx);
             }
+        }
+        self.check_external_file_change(ctx);
+        self.menu_bar(ctx);
+        self.toolbar(ctx);
+        self.tool_ribbon_panel(ctx);
+        if no_modal {
             self.route_sheet_typing(ctx);
-            if self.insertion.is_none() && !ctx.wants_keyboard_input() {
+            if self.insertion.is_none()
+                && !ctx.wants_keyboard_input()
+                && !self.tool_search.is_blocking_sheet(ctx)
+            {
                 if ctx.input(|i| i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(Key::Z)) {
                     self.undo();
                 } else if ctx.input(|i| {
@@ -4911,7 +5055,7 @@ impl eframe::App for Workbench {
                     self.delete_selected();
                 }
             }
-            if ctx.input(|i| i.key_pressed(Key::F2)) {
+            if !self.tool_search.is_blocking_sheet(ctx) && ctx.input(|i| i.key_pressed(Key::F2)) {
                 if let Some(index) = self.selected {
                     self.start_formula_inline(index);
                 }
@@ -4925,11 +5069,7 @@ impl eframe::App for Workbench {
                 self.request_open(Open::File(path), ctx);
             }
         }
-        self.check_external_file_change(ctx);
-        self.menu_bar(ctx);
-        self.toolbar(ctx);
         self.footer(ctx);
-        self.palette_panel(ctx);
         self.sidebar(ctx);
         self.workspace(ctx);
         if let Some(action) = self.pending.clone() {
@@ -5948,5 +6088,104 @@ mod tests {
         assert_eq!(app.document.sheet.display(1).unwrap(), "9");
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn tool_search_typing_and_enter_reveal_group_without_mutating_sheet() {
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        app.caret = Some(Pos2::new(20., 20.));
+        app.tool_search.request_focus(&ctx);
+
+        let tick = |app: &mut Workbench, events| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1080., 740.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    app.tool_search.begin_frame(ctx);
+                    app.tool_ribbon_panel(ctx);
+                    app.route_sheet_typing(ctx);
+                    app.workspace(ctx);
+                },
+            );
+        };
+
+        // Frame 1: focus lands in search input
+        tick(&mut app, Vec::new());
+        // Frame 2: type "  МАТР  " into search input -> must NOT create a formula on sheet
+        tick(&mut app, vec![egui::Event::Text("  МАТР  ".into())]);
+        assert!(app.insertion.is_none());
+        assert!(app.document.sheet.regions.is_empty());
+        assert!(app.tool_search.open);
+
+        // Frame 3: press Enter -> opens "Вектор и матрица" and highlights it without inserting
+        tick(
+            &mut app,
+            vec![egui::Event::Key {
+                key: Key::Enter,
+                physical_key: Some(Key::Enter),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert_eq!(app.palette_tab, math_view::PaletteTab::Matrix);
+        assert!(app.ribbon_expanded);
+        assert_eq!(
+            app.tool_search.highlight,
+            Some(tool_ribbon::SearchHighlight::Group(
+                math_view::PaletteTab::Matrix
+            ))
+        );
+        assert!(app.insertion.is_none());
+        assert!(app.document.sheet.regions.is_empty());
+
+        // Escape while search popup is open closes it without mutating the sheet
+        app.tool_search.request_focus(&ctx);
+        tick(&mut app, Vec::new());
+        tick(
+            &mut app,
+            vec![egui::Event::Key {
+                key: Key::Escape,
+                physical_key: Some(Key::Escape),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(!app.tool_search.open);
+        assert!(app.document.sheet.regions.is_empty());
+    }
+
+    #[test]
+    fn tool_ribbon_renders_cleanly_at_narrow_width_and_inserts_via_actions() {
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(780., 560.))),
+                ..Default::default()
+            },
+            |ctx| {
+                app.tool_search.begin_frame(ctx);
+                app.menu_bar(ctx);
+                app.toolbar(ctx);
+                app.tool_ribbon_panel(ctx);
+                app.footer(ctx);
+                app.sidebar(ctx);
+                app.workspace(ctx);
+            },
+        );
+        app.apply_tool_action(tool_ribbon::ToolAction::CustomMatrix);
+        assert!(app.insertion.is_some());
+        app.insertion = None;
+        app.apply_tool_action(tool_ribbon::ToolAction::ChartXY);
+        assert!(matches!(
+            app.insertion.as_ref().map(|i| &i.draft),
+            Some(DraftRegion::Chart(_))
+        ));
     }
 }

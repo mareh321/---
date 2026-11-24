@@ -31,15 +31,16 @@ impl Metrics {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaletteTab {
     Operators,
+    Plots,
+    Matrix,
     Calculus,
     Symbolic,
-    Matrix,
     Program,
     Greek,
     Logic,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum PaletteAction {
     Fraction,
     Power,
@@ -971,379 +972,49 @@ pub fn handle_keyboard(ctx: &egui::Context, editor: &mut MathEditor) -> bool {
 pub fn palette_buttons(ui: &mut egui::Ui, editor: &mut MathEditor) -> bool {
     let mut changed = false;
     ui.horizontal_wrapped(|ui| {
-        for (label, tip, action) in [
-            ("a/b", "Вертикальная дробь (/)", PaletteAction::Fraction),
-            ("xⁿ", "Степень (^)", PaletteAction::Power),
-            ("√x", "Квадратный корень", PaletteAction::Sqrt),
-            ("xₐ", "Индекс — часть имени (.)", PaletteAction::LiteralSub),
+        for (label, name, tip, action) in [
+            (
+                "a/b",
+                "Вертикальная дробь",
+                "Вертикальная дробь (/)",
+                PaletteAction::Fraction,
+            ),
+            ("xⁿ", "Степень", "Степень (^)", PaletteAction::Power),
+            (
+                "√x",
+                "Квадратный корень",
+                "Квадратный корень",
+                PaletteAction::Sqrt,
+            ),
+            (
+                "xₐ",
+                "Индекс — часть имени",
+                "Индекс — часть имени (.)",
+                PaletteAction::LiteralSub,
+            ),
             (
                 "A[i]",
+                "Индекс элемента массива",
                 "Индекс элемента массива ([)",
                 PaletteAction::IndexSub,
             ),
-            ("[2×2]", "Матрица 2×2", PaletteAction::Matrix(2, 2)),
-            ("|x|", "Модуль |x|", PaletteAction::Abs),
-            ("π", "Число пи", PaletteAction::Raw("π")),
+            (
+                "[2×2]",
+                "Матрица 2×2",
+                "Матрица 2×2",
+                PaletteAction::Matrix(2, 2),
+            ),
+            ("|x|", "Модуль", "Модуль |x|", PaletteAction::Abs),
+            ("π", "Число пи", "Константа π", PaletteAction::Raw("π")),
         ] {
-            if ui.small_button(label).on_hover_text(tip).clicked() {
+            let response = ui.small_button(label).on_hover_text(tip);
+            response
+                .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+            if response.clicked() {
                 action.apply(editor);
                 changed = true;
             }
         }
     });
     changed
-}
-
-pub fn mathcad_palette_ui(
-    ui: &mut egui::Ui,
-    tab: &mut PaletteTab,
-    mat_rows: &mut usize,
-    mat_cols: &mut usize,
-) -> Option<PaletteAction> {
-    let mut action = None;
-    ui.horizontal_wrapped(|ui| {
-        ui.selectable_value(tab, PaletteTab::Operators, "Опер.");
-        ui.selectable_value(tab, PaletteTab::Calculus, "Анал.");
-        ui.selectable_value(tab, PaletteTab::Symbolic, "Симв.");
-        ui.selectable_value(tab, PaletteTab::Matrix, "Матр.");
-        ui.selectable_value(tab, PaletteTab::Program, "Прог.");
-        ui.selectable_value(tab, PaletteTab::Greek, "αβγ");
-        ui.selectable_value(tab, PaletteTab::Logic, "Лог.");
-    });
-    ui.separator();
-    ui.add_space(4.0);
-    match *tab {
-        PaletteTab::Operators => {
-            let items: [(&str, &str, PaletteAction); 15] = [
-                ("a/b", "Вертикальная дробь (/)", PaletteAction::Fraction),
-                ("xⁿ", "Степень (^)", PaletteAction::Power),
-                ("√x", "Квадратный корень", PaletteAction::Sqrt),
-                ("|x|", "Модуль |x|", PaletteAction::Abs),
-                ("xₐ", "Индекс — часть имени", PaletteAction::LiteralSub),
-                ("A[i]", "Индекс массива ([)", PaletteAction::IndexSub),
-                (":=", "Определение :=", PaletteAction::Raw(" := ")),
-                (
-                    "≡",
-                    "Глобальное определение ===",
-                    PaletteAction::Raw(" === "),
-                ),
-                ("=", "Вывод результата =", PaletteAction::Raw(" =")),
-                ("..", "Диапазон ..", PaletteAction::Raw("..")),
-                ("π", "Константа π", PaletteAction::Raw("π")),
-                ("e", "Число Эйлера e", PaletteAction::Raw("e")),
-                ("i", "Мнимая единица 1i", PaletteAction::Raw("1i")),
-                ("(", "Скобки ( )", PaletteAction::Raw("()")),
-                ("deg", "Градусы deg", PaletteAction::Raw(" * deg")),
-            ];
-            egui::Grid::new("mc_ops_grid")
-                .spacing(vec2(4.0, 4.0))
-                .show(ui, |ui| {
-                    for (i, (label, tip, act)) in items.into_iter().enumerate() {
-                        if ui
-                            .add_sized([44.0, 26.0], egui::Button::new(label))
-                            .on_hover_text(tip)
-                            .clicked()
-                        {
-                            action = Some(act);
-                        }
-                        if (i + 1) % 3 == 0 {
-                            ui.end_row();
-                        }
-                    }
-                });
-        }
-        PaletteTab::Calculus => {
-            let items: [(&str, &str, PaletteAction); 12] = [
-                (
-                    "d/dx",
-                    "Численная производная d/dx f|x0",
-                    PaletteAction::Derivative,
-                ),
-                (
-                    "∫",
-                    "Определённый интеграл ∫_a^b f",
-                    PaletteAction::BigOp(BigOpKind::Integral),
-                ),
-                (
-                    "Σ",
-                    "Сумма по индексу ∑_a^b f",
-                    PaletteAction::BigOp(BigOpKind::Sum),
-                ),
-                (
-                    "Π",
-                    "Произведение ∏_a^b f",
-                    PaletteAction::BigOp(BigOpKind::Product),
-                ),
-                (
-                    "root",
-                    "Корень уравнения root(f, x0) или root(f, a, b)",
-                    PaletteAction::Call("root"),
-                ),
-                (
-                    "poly",
-                    "Корни полинома polyroots(v)",
-                    PaletteAction::Call("polyroots"),
-                ),
-                (
-                    "nslv",
-                    "Система уравнений nsolve(F, x0)",
-                    PaletteAction::Call("nsolve"),
-                ),
-                (
-                    "min",
-                    "Минимизация minimize(f, x0)",
-                    PaletteAction::Call("minimize"),
-                ),
-                (
-                    "max",
-                    "Максимизация maximize(f, x0)",
-                    PaletteAction::Call("maximize"),
-                ),
-                (
-                    "merr",
-                    "МНК-решение minerr(F, x0)",
-                    PaletteAction::Call("minerr"),
-                ),
-                (
-                    "Giv",
-                    "Начало блока решения Given",
-                    PaletteAction::Raw("Given"),
-                ),
-                (
-                    "Find",
-                    "Конец блока решения Find(x, y)",
-                    PaletteAction::Call("Find"),
-                ),
-            ];
-            egui::Grid::new("mc_calc_grid")
-                .spacing(vec2(4.0, 4.0))
-                .show(ui, |ui| {
-                    for (i, (label, tip, act)) in items.into_iter().enumerate() {
-                        if ui
-                            .add_sized([44.0, 26.0], egui::Button::new(label))
-                            .on_hover_text(tip)
-                            .clicked()
-                        {
-                            action = Some(act);
-                        }
-                        if (i + 1) % 3 == 0 {
-                            ui.end_row();
-                        }
-                    }
-                });
-        }
-        PaletteTab::Symbolic => {
-            let items: [(&str, &str, PaletteAction); 9] = [
-                (
-                    "→",
-                    "Символьное вычисление expr ->",
-                    PaletteAction::Raw(" ->"),
-                ),
-                (
-                    "simp",
-                    "Упростить simplify(expr)",
-                    PaletteAction::Call("simplify"),
-                ),
-                (
-                    "expd",
-                    "Раскрыть скобки expand(expr)",
-                    PaletteAction::Call("expand"),
-                ),
-                (
-                    "d/dx",
-                    "Символьная производная sdiff(expr, x)",
-                    PaletteAction::Call("sdiff"),
-                ),
-                (
-                    "solv",
-                    "Символьное решение ssolve(expr, x)",
-                    PaletteAction::Call("ssolve"),
-                ),
-                (
-                    "sub",
-                    "Подстановка subst(expr, x, val)",
-                    PaletteAction::Call("subst"),
-                ),
-                ("sin", "Синус sin(x)", PaletteAction::Call("sin")),
-                ("cos", "Косинус cos(x)", PaletteAction::Call("cos")),
-                ("ln", "Логарифм ln(x)", PaletteAction::Call("ln")),
-            ];
-            egui::Grid::new("mc_sym_grid")
-                .spacing(vec2(4.0, 4.0))
-                .show(ui, |ui| {
-                    for (i, (label, tip, act)) in items.into_iter().enumerate() {
-                        if ui
-                            .add_sized([44.0, 26.0], egui::Button::new(label))
-                            .on_hover_text(tip)
-                            .clicked()
-                        {
-                            action = Some(act);
-                        }
-                        if (i + 1) % 3 == 0 {
-                            ui.end_row();
-                        }
-                    }
-                });
-        }
-        PaletteTab::Matrix => {
-            ui.horizontal(|ui| {
-                ui.label("Строк:");
-                ui.add(egui::DragValue::new(mat_rows).range(1..=6));
-            });
-            ui.horizontal(|ui| {
-                ui.label("Столб.:");
-                ui.add(egui::DragValue::new(mat_cols).range(1..=6));
-            });
-            ui.add_space(4.0);
-            if ui
-                .add_sized(
-                    [ui.available_width(), 26.0],
-                    egui::Button::new(format!("Вставить [{}×{}]", *mat_rows, *mat_cols)),
-                )
-                .clicked()
-            {
-                action = Some(PaletteAction::Matrix(*mat_rows, *mat_cols));
-            }
-            ui.add_space(6.0);
-            let presets: [(&str, &str, PaletteAction); 9] = [
-                ("2×2", "Матрица 2×2", PaletteAction::Matrix(2, 2)),
-                ("3×3", "Матрица 3×3", PaletteAction::Matrix(3, 3)),
-                ("3×1", "Вектор 3×1", PaletteAction::Matrix(3, 1)),
-                ("det", "Определитель det(M)", PaletteAction::Call("det")),
-                ("Mᵀ", "Транспонирование", PaletteAction::Call("transpose")),
-                (
-                    "lsolve",
-                    "Решение СЛАУ lsolve(A, b)",
-                    PaletteAction::Call("lsolve"),
-                ),
-                ("col", "Столбец col(M, j)", PaletteAction::Call("col")),
-                ("row", "Строка row(M, i)", PaletteAction::Call("row")),
-                (
-                    "aug",
-                    "Объединить augment(A, B)",
-                    PaletteAction::Call("augment"),
-                ),
-            ];
-            egui::Grid::new("mc_mat_grid")
-                .spacing(vec2(4.0, 4.0))
-                .show(ui, |ui| {
-                    for (i, (label, tip, act)) in presets.into_iter().enumerate() {
-                        if ui
-                            .add_sized([44.0, 26.0], egui::Button::new(label))
-                            .on_hover_text(tip)
-                            .clicked()
-                        {
-                            action = Some(act);
-                        }
-                        if (i + 1) % 3 == 0 {
-                            ui.end_row();
-                        }
-                    }
-                });
-        }
-        PaletteTab::Program => {
-            let items: [(&str, &str, PaletteAction); 9] = [
-                (
-                    "prog",
-                    "Программный блок (Shift+Enter: +строка)",
-                    PaletteAction::Program(2),
-                ),
-                ("←", "Локальное присваивание <-", PaletteAction::Raw(" <- ")),
-                ("if", "Ветвление if(cond, a, b)", PaletteAction::Call("if")),
-                ("for", "Цикл for(k, 1..n, body)", PaletteAction::Call("for")),
-                (
-                    "while",
-                    "Цикл while(cond, body)",
-                    PaletteAction::Call("while"),
-                ),
-                (
-                    "ret",
-                    "Возврат значения return(x)",
-                    PaletteAction::Call("return"),
-                ),
-                (
-                    "ode",
-                    "Решатель ОДУ odesolve(f, x0, y0, x1)",
-                    PaletteAction::Call("odesolve"),
-                ),
-                (
-                    "ode[]",
-                    "Таблица ОДУ odesolve_table(f, x0, y0, x1, n)",
-                    PaletteAction::Call("odesolve_table"),
-                ),
-                (
-                    "+стр",
-                    "Добавить строку в программу (Shift+Enter)",
-                    PaletteAction::AddProgramLine,
-                ),
-            ];
-            egui::Grid::new("mc_prog_grid")
-                .spacing(vec2(4.0, 4.0))
-                .show(ui, |ui| {
-                    for (i, (label, tip, act)) in items.into_iter().enumerate() {
-                        if ui
-                            .add_sized([44.0, 26.0], egui::Button::new(label))
-                            .on_hover_text(tip)
-                            .clicked()
-                        {
-                            action = Some(act);
-                        }
-                        if (i + 1) % 3 == 0 {
-                            ui.end_row();
-                        }
-                    }
-                });
-        }
-        PaletteTab::Greek => {
-            const GREEK: [&str; 24] = [
-                "α", "β", "γ", "δ", "ε", "ζ", "η", "θ", "λ", "μ", "ν", "ξ", "π", "ρ", "σ", "τ",
-                "φ", "ψ", "ω", "Δ", "Θ", "Λ", "Σ", "Ω",
-            ];
-            egui::Grid::new("mc_greek_grid")
-                .spacing(vec2(3.0, 3.0))
-                .show(ui, |ui| {
-                    for (i, letter) in GREEK.into_iter().enumerate() {
-                        if ui
-                            .add_sized([32.0, 25.0], egui::Button::new(letter))
-                            .clicked()
-                        {
-                            action = Some(PaletteAction::Raw(letter));
-                        }
-                        if (i + 1) % 4 == 0 {
-                            ui.end_row();
-                        }
-                    }
-                });
-        }
-        PaletteTab::Logic => {
-            let items: [(&str, &str, PaletteAction); 9] = [
-                ("==", "Равно (булево)", PaletteAction::Raw(" == ")),
-                ("≠", "Не равно", PaletteAction::Raw(" != ")),
-                ("<", "Меньше", PaletteAction::Raw(" < ")),
-                ("≤", "Меньше или равно", PaletteAction::Raw(" <= ")),
-                (">", "Больше", PaletteAction::Raw(" > ")),
-                ("≥", "Больше или равно", PaletteAction::Raw(" >= ")),
-                ("if", "Условие if(cond, a, b)", PaletteAction::Call("if")),
-                ("sum", "Сумма элементов", PaletteAction::Call("sum")),
-                ("mean", "Среднее значение", PaletteAction::Call("mean")),
-            ];
-            egui::Grid::new("mc_logic_grid")
-                .spacing(vec2(4.0, 4.0))
-                .show(ui, |ui| {
-                    for (i, (label, tip, act)) in items.into_iter().enumerate() {
-                        if ui
-                            .add_sized([44.0, 26.0], egui::Button::new(label))
-                            .on_hover_text(tip)
-                            .clicked()
-                        {
-                            action = Some(act);
-                        }
-                        if (i + 1) % 3 == 0 {
-                            ui.end_row();
-                        }
-                    }
-                });
-        }
-    }
-    action
 }

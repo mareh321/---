@@ -71,6 +71,13 @@ impl Default for Draft {
 }
 
 impl Draft {
+    pub fn vectors_preset() -> Self {
+        Self {
+            mode: DraftMode::Vectors,
+            ..Self::default()
+        }
+    }
+
     pub fn parametric_preset() -> Self {
         Self {
             mode: DraftMode::Parametric,
