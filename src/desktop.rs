@@ -272,6 +272,12 @@ impl PlotRegion {
     }
 }
 
+struct ChartTrace {
+    region_id: String,
+    snap: bool,
+    sample: Option<chart_view::TraceSample>,
+}
+
 struct Plot3dRegion {
     spec: editing::Plot3dSpec,
     grid: Calc<list_rs::sheet::SurfaceGrid>,
@@ -1111,6 +1117,8 @@ struct Workbench {
     print_preview: bool,
     page_dialog: Option<editing::PageSettings>,
     animation: Option<AnimationState>,
+    chart_trace: Option<ChartTrace>,
+    chart_zoom: Option<String>,
     area_dialog: Option<AreaDialog>,
     textures: HashMap<String, Option<egui::TextureHandle>>,
     auto_reload: bool,
@@ -1176,6 +1184,8 @@ impl Workbench {
             print_preview: false,
             page_dialog: None,
             animation: None,
+            chart_trace: None,
+            chart_zoom: None,
             area_dialog: None,
             textures: HashMap::new(),
             auto_reload: true,
@@ -1247,6 +1257,8 @@ impl Workbench {
         self.table_editor = None;
         self.page_dialog = None;
         self.animation = None;
+        self.chart_trace = None;
+        self.chart_zoom = None;
         self.area_dialog = None;
         self.textures.clear();
         self.caret = None;
@@ -2093,6 +2105,124 @@ impl Workbench {
         }
         if keep_open {
             self.animation = Some(anim);
+        }
+    }
+
+    fn selected_chart(&self) -> Option<usize> {
+        self.selected
+            .filter(|index| self.selected_ids.len() == 1 && self.document.plots.contains_key(index))
+    }
+
+    fn open_chart_trace(&mut self, index: usize) {
+        self.select_for_menu(index);
+        self.chart_trace = Some(ChartTrace {
+            region_id: self.document.sheet.regions[index].source_id.clone(),
+            snap: true,
+            sample: None,
+        });
+    }
+
+    fn chart_tools(&mut self, ctx: &egui::Context) {
+        if let Some(mut trace) = self.chart_trace.take() {
+            if let Some(plot) = self
+                .document
+                .by_id(&trace.region_id)
+                .ok()
+                .and_then(|index| self.document.plots.get(&index))
+            {
+                let mut open = true;
+                let mut close = false;
+                egui::Window::new("Трассировка графика")
+                    .id(egui::Id::new("chart_trace"))
+                    .default_pos(Pos2::new((ctx.content_rect().right() - 325.).max(0.), 168.))
+                    .collapsible(false)
+                    .resizable(false)
+                    .open(&mut open)
+                    .show(ctx, |ui| {
+                        if ui
+                            .checkbox(&mut trace.snap, "Отслеживать точки данных")
+                            .changed()
+                        {
+                            trace.sample = None;
+                        }
+                        if let Some(error) = plot.curves.as_ref().err() {
+                            trace.sample = None;
+                            ui.label(error);
+                        }
+                        for (axis, label) in ["X", "Y"].into_iter().enumerate() {
+                            let value = trace
+                                .sample
+                                .map(|sample| sample.coordinates[axis].to_string());
+                            ui.horizontal(|ui| {
+                                ui.label(label);
+                                ui.add_sized(
+                                    [125., 18.],
+                                    egui::Label::new(value.as_deref().unwrap_or("—")),
+                                );
+                                if ui
+                                    .add_enabled(
+                                        value.is_some(),
+                                        egui::Button::new(format!("Копировать {label}")),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Some(value) = value {
+                                        ctx.copy_text(value);
+                                    }
+                                }
+                            });
+                        }
+                        if let Some(name) = trace
+                            .sample
+                            .and_then(|sample| sample.series)
+                            .and_then(|series| plot.curves.as_ref().ok()?.get(series))
+                            .map(|(name, _)| name)
+                        {
+                            ui.label(name);
+                        }
+                        close = ui.button("Закрыть").clicked();
+                    });
+                if open && !close {
+                    self.chart_trace = Some(trace);
+                }
+            }
+        }
+
+        let Some(id) = self.chart_zoom.take() else {
+            return;
+        };
+        let Some(index) = self.document.by_id(&id).ok() else {
+            return;
+        };
+        let Some(plot) = self.document.plots.get_mut(&index) else {
+            return;
+        };
+        let mut open = true;
+        let mut edit = false;
+        egui::Window::new("Масштаб графика")
+            .id(egui::Id::new("chart_zoom"))
+            .default_pos(Pos2::new((ctx.content_rect().right() - 325.).max(0.), 275.))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    for (label, change) in [
+                        ("Увеличить", PlotZoom::In),
+                        ("Уменьшить", PlotZoom::Out),
+                        ("Сбросить", PlotZoom::Reset),
+                    ] {
+                        if ui.button(label).clicked() {
+                            plot.change_zoom(change);
+                        }
+                    }
+                });
+                edit = ui.button("Границы осей…").clicked();
+            });
+        if edit {
+            self.edit_chart(index);
+        } else if open {
+            self.chart_zoom = Some(id);
         }
     }
 
@@ -3059,6 +3189,16 @@ impl Workbench {
             tool_ribbon::ToolAction::ChartXY => {
                 self.start_insert(DraftRegion::Chart(Box::default()));
             }
+            tool_ribbon::ToolAction::ChartZoom => {
+                if let Some(index) = self.selected_chart() {
+                    self.chart_zoom = Some(self.document.sheet.regions[index].source_id.clone());
+                }
+            }
+            tool_ribbon::ToolAction::ChartTrace => {
+                if let Some(index) = self.selected_chart() {
+                    self.open_chart_trace(index);
+                }
+            }
             tool_ribbon::ToolAction::ChartVectors => {
                 self.start_insert(DraftRegion::Chart(Box::new(
                     chart_view::Draft::vectors_preset(),
@@ -3094,6 +3234,7 @@ impl Workbench {
         if !self.show_palette {
             return;
         }
+        let selected_chart = self.selected_chart().is_some();
         if let Some(action) = tool_ribbon::show_ribbon(
             ctx,
             &mut self.palette_tab,
@@ -3101,6 +3242,7 @@ impl Workbench {
             &mut self.matrix_rows,
             &mut self.matrix_cols,
             &mut self.tool_search,
+            selected_chart,
         ) {
             self.apply_tool_action(action);
             ctx.request_repaint();
@@ -4515,24 +4657,15 @@ impl Workbench {
                 ui.close();
                 self.edit_chart(index);
             }
-            ui.menu_button("Масштаб", |ui| {
-                for (label, change) in [
-                    ("Увеличить", PlotZoom::In),
-                    ("Уменьшить", PlotZoom::Out),
-                    ("Сбросить", PlotZoom::Reset),
-                ] {
-                    if ui.button(label).clicked() {
-                        ui.close();
-                        if let Some(plot) = self.document.plots.get_mut(&index) {
-                            plot.change_zoom(change);
-                        }
-                    }
-                }
-                if ui.button("Границы осей…").clicked() {
-                    ui.close();
-                    self.edit_chart(index);
-                }
-            });
+            if ui.button("Трассировка…").clicked() {
+                ui.close();
+                self.open_chart_trace(index);
+            }
+            if ui.button("Масштаб…").clicked() {
+                ui.close();
+                self.select_for_menu(index);
+                self.chart_zoom = Some(self.document.sheet.regions[index].source_id.clone());
+            }
         } else if self.document.plots3d.contains_key(&index) {
             if ui.button("Формат 3D-графика…").clicked() {
                 ui.close();
@@ -4776,7 +4909,16 @@ impl Workbench {
                     egui::Id::new((self.generation, index)),
                     Sense::click_and_drag(),
                 );
-                chart_view::draw(
+                let trace = self
+                    .chart_trace
+                    .as_mut()
+                    .filter(|trace| trace.region_id == region.source_id);
+                let mode = match trace.as_ref() {
+                    Some(trace) if trace.snap => chart_view::TraceMode::Data,
+                    Some(_) => chart_view::TraceMode::Cursor,
+                    None => chart_view::TraceMode::Hover,
+                };
+                let sample = chart_view::draw(
                     ui.painter(),
                     rect,
                     &plot.curves,
@@ -4785,7 +4927,11 @@ impl Workbench {
                     plot.zoom,
                     response.hover_pos(),
                     selected,
+                    mode,
                 );
+                if let (Some(trace), Some(sample)) = (trace, sample) {
+                    trace.sample = Some(sample);
+                }
                 if response.double_clicked() {
                     edit_region = Some((index, 1));
                 }
@@ -6030,6 +6176,7 @@ impl eframe::App for Workbench {
         self.footer(ctx);
         self.sidebar(ctx);
         self.workspace(ctx);
+        self.chart_tools(ctx);
         if let Some(action) = self.pending.clone() {
             let response = egui::Modal::new(egui::Id::new("discard_inputs")).show(ctx, |ui| {
                 ui.heading("Есть несохранённые изменения");

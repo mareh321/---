@@ -60,6 +60,8 @@ pub enum ToolAction {
     Math(PaletteAction),
     CustomMatrix,
     ChartXY,
+    ChartZoom,
+    ChartTrace,
     ChartVectors,
     ChartParametric,
     ChartPolar,
@@ -580,26 +582,26 @@ pub const TOOLS: &[ToolItem] = &[
         action: ToolAction::ChartXY,
     },
     ToolItem {
-        id: "plot.vectors",
+        id: "plot.zoom",
         group: PaletteTab::Plots,
-        name: "График по векторам X, Y",
-        short_label: "X, Y",
-        tooltip: "График по векторам X, Y\nПостроение кривой по парам массивов данных",
+        name: "Масштаб графика",
+        short_label: "Масштаб",
+        tooltip: "Масштаб выбранного 2D-графика",
         shortcut: None,
-        icon: ToolIcon::PlotVectors,
-        synonyms: &["график", "данные", "векторы", "массивы", "точки", "xy"],
-        action: ToolAction::ChartVectors,
+        icon: ToolIcon::Search,
+        synonyms: &["масштаб графика", "приближение", "zoom"],
+        action: ToolAction::ChartZoom,
     },
     ToolItem {
-        id: "plot.parametric",
+        id: "plot.trace",
         group: PaletteTab::Plots,
-        name: "Параметрический график",
-        short_label: "x(t), y(t)",
-        tooltip: "Параметрический график\nКривая x(t), y(t) на интервале параметра",
+        name: "Трассировка графика",
+        short_label: "Трассир.",
+        tooltip: "Трассировка координат выбранного 2D-графика",
         shortcut: None,
-        icon: ToolIcon::PlotParametric,
-        synonyms: &["график", "параметрический", "x(t)", "y(t)", "parametric"],
-        action: ToolAction::ChartParametric,
+        icon: ToolIcon::Glyph("⊕"),
+        synonyms: &["трассировка", "координаты", "точка", "trace"],
+        action: ToolAction::ChartTrace,
     },
     ToolItem {
         id: "plot.polar",
@@ -633,6 +635,28 @@ pub const TOOLS: &[ToolItem] = &[
         icon: ToolIcon::PlotContour,
         synonyms: &["график", "контурный", "изолинии", "теплокарта", "contour"],
         action: ToolAction::Plot3dContour,
+    },
+    ToolItem {
+        id: "plot.vectors",
+        group: PaletteTab::Plots,
+        name: "График по векторам X, Y",
+        short_label: "X, Y",
+        tooltip: "График по векторам X, Y\nПостроение кривой по парам массивов данных",
+        shortcut: None,
+        icon: ToolIcon::PlotVectors,
+        synonyms: &["график", "данные", "векторы", "массивы", "точки", "xy"],
+        action: ToolAction::ChartVectors,
+    },
+    ToolItem {
+        id: "plot.parametric",
+        group: PaletteTab::Plots,
+        name: "Параметрический график",
+        short_label: "x(t), y(t)",
+        tooltip: "Параметрический график\nКривая x(t), y(t) на интервале параметра",
+        shortcut: None,
+        icon: ToolIcon::PlotParametric,
+        synonyms: &["график", "параметрический", "x(t)", "y(t)", "parametric"],
+        action: ToolAction::ChartParametric,
     },
     // --- Вектор и матрица ---
     ToolItem {
@@ -2201,6 +2225,7 @@ fn paint_tool_button(
     item: &ToolItem,
     highlighted: bool,
     scroll_to_me: bool,
+    enabled: bool,
 ) -> egui::Response {
     let has_label = !item.short_label.is_empty();
     let width = if has_label {
@@ -2214,7 +2239,16 @@ fn paint_tool_button(
         38.0
     };
     let height = 28.0;
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    let (rect, response) = ui
+        .add_enabled_ui(enabled, |ui| {
+            ui.allocate_exact_size(vec2(width, height), Sense::click())
+        })
+        .inner;
+    let ink = if enabled {
+        TEXT_WHITE
+    } else {
+        TEXT_MUTED.gamma_multiply(0.65)
+    };
     if scroll_to_me {
         response.scroll_to_me(Some(Align::Center));
     }
@@ -2252,24 +2286,30 @@ fn paint_tool_button(
             Pos2::new(rect.left() + 6.0, rect.top() + 5.0),
             vec2(18.0, 18.0),
         );
-        paint_icon(ui.painter(), icon_rect, item.icon, TEXT_WHITE, icon_accent);
+        paint_icon(ui.painter(), icon_rect, item.icon, ink, icon_accent);
         ui.painter().text(
             Pos2::new(icon_rect.right() + 4.0, rect.center().y),
             Align2::LEFT_CENTER,
             item.short_label,
             FontId::proportional(11.5),
-            TEXT_WHITE,
+            ink,
         );
     } else {
         let icon_rect = rect.shrink2(vec2(4.0, 3.0));
-        paint_icon(ui.painter(), icon_rect, item.icon, TEXT_WHITE, icon_accent);
+        paint_icon(ui.painter(), icon_rect, item.icon, ink, icon_accent);
     }
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, item.name));
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, item.name));
     let tip = match item.shortcut {
         Some(key) if !item.tooltip.contains(key) => format!("{} ({key})", item.tooltip),
         _ => item.tooltip.to_owned(),
     };
-    response.on_hover_text(tip)
+    response
+        .on_disabled_hover_text(format!(
+            "{tip}
+Сначала выберите 2D-график"
+        ))
+        .on_hover_text(tip)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2280,6 +2320,7 @@ pub fn show_ribbon(
     mat_rows: &mut usize,
     mat_cols: &mut usize,
     search: &mut SearchState,
+    selected_chart: bool,
 ) -> Option<ToolAction> {
     let mut triggered: Option<ToolAction> = None;
     let mut search_bar_rect: Option<Rect> = None;
@@ -2578,7 +2619,18 @@ pub fn show_ribbon(
                                                 should_scroll,
                                             )
                                         } else {
-                                            paint_tool_button(ui, item, is_hl, should_scroll)
+                                            let enabled = selected_chart
+                                                || !matches!(
+                                                    item.action,
+                                                    ToolAction::ChartZoom | ToolAction::ChartTrace
+                                                );
+                                            paint_tool_button(
+                                                ui,
+                                                item,
+                                                is_hl,
+                                                should_scroll,
+                                                enabled,
+                                            )
                                         };
                                         if should_scroll {
                                             search.scroll_to_highlight = false;

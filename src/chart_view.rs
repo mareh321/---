@@ -7,6 +7,20 @@ use list_rs::{
 };
 
 pub type Curves = Vec<(String, Vec<Option<[f64; 2]>>)>;
+
+#[derive(Clone, Copy, Default)]
+pub enum TraceMode {
+    #[default]
+    Hover,
+    Data,
+    Cursor,
+}
+
+#[derive(Clone, Copy)]
+pub struct TraceSample {
+    pub coordinates: [f64; 2],
+    pub series: Option<usize>,
+}
 const COLORS: [Color32; 4] = [
     Color32::from_rgb(0, 111, 105),
     Color32::from_rgb(156, 65, 31),
@@ -340,7 +354,8 @@ pub fn draw(
     zoom: f64,
     hover: Option<Pos2>,
     selected: bool,
-) {
+    trace_mode: TraceMode,
+) -> Option<TraceSample> {
     let line = Color32::from_rgb(218, 228, 232);
     let ink = Color32::from_rgb(47, 70, 81);
     let painter = painter.with_clip_rect(rect);
@@ -359,7 +374,7 @@ pub fn draw(
             FontId::proportional(12.),
             COLORS[1],
         );
-        return;
+        return None;
     };
     let top_pad = if options.show_legend { 32. } else { 14. };
     let bottom_pad = if options.x_label.is_empty() { 33. } else { 44. };
@@ -369,7 +384,7 @@ pub fn draw(
         rect.max - vec2(15., bottom_pad),
     );
     if grid.width() < 20. || grid.height() < 15. {
-        return;
+        return None;
     }
 
     let log_x = !is_polar && options.log_x;
@@ -395,7 +410,7 @@ pub fn draw(
             FontId::proportional(12.),
             COLORS[1],
         );
-        return;
+        return None;
     }
     for (axis, (manual_min, manual_max, is_log)) in bounds.iter_mut().zip([
         (options.x_min, options.x_max, log_x),
@@ -529,7 +544,12 @@ pub fn draw(
     }
 
     let mut closest = None;
-    let mut best = 120.;
+    let mut best = match trace_mode {
+        TraceMode::Hover => 120.,
+        _ => f32::INFINITY,
+    };
+    let mouse = hover.filter(|&pos| grid.contains(pos));
+    let snap = mouse.filter(|_| !matches!(trace_mode, TraceMode::Cursor));
     let labels = rect.width() / curves.len().max(1) as f32;
     for (series, (name, points)) in curves.iter().enumerate() {
         let color = COLORS[series % COLORS.len()];
@@ -559,11 +579,18 @@ pub fn draw(
         for point in points.iter().copied().chain(std::iter::once(None)) {
             if let Some(values) = point {
                 if let Some(pixel) = project(values) {
-                    if let Some(mouse) = hover.filter(|&m| grid.contains(m)) {
+                    if let Some(mouse) = snap.filter(|_| grid.contains(pixel)) {
                         let distance = mouse.distance_sq(pixel);
                         if distance < best {
                             best = distance;
-                            closest = Some((pixel, values, color));
+                            closest = Some((
+                                pixel,
+                                TraceSample {
+                                    coordinates: values,
+                                    series: Some(series),
+                                },
+                                color,
+                            ));
                         }
                     }
                     if options.markers && drawn_pts % marker_step == 0 {
@@ -588,7 +615,23 @@ pub fn draw(
         }
     }
 
-    if let Some((dot, [x, y], color)) = closest {
+    if let Some(mouse) = mouse.filter(|_| matches!(trace_mode, TraceMode::Cursor)) {
+        let x_ratio = f64::from((mouse.x - grid.left()) / grid.width());
+        let y_ratio = f64::from((grid.bottom() - mouse.y) / grid.height());
+        closest = Some((
+            mouse,
+            TraceSample {
+                coordinates: [
+                    unmap_coord(xmin + (xmax - xmin) * x_ratio, log_x),
+                    unmap_coord(ymin + (ymax - ymin) * y_ratio, log_y),
+                ],
+                series: None,
+            },
+            ink,
+        ));
+    }
+    if let Some((dot, sample, color)) = closest {
+        let [x, y] = sample.coordinates;
         let guide = Stroke::new(0.8_f32, Color32::from_rgb(180, 194, 200));
         canvas.vline(dot.x, grid.y_range(), guide);
         canvas.hline(grid.x_range(), dot.y, guide);
@@ -613,5 +656,75 @@ pub fn draw(
             FontId::proportional(10.),
             ink,
         );
+    }
+    closest.map(|(_, sample, _)| sample)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chart_trace_snaps_across_series_and_inverts_the_zoomed_log_scale() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let painter = ctx.layer_painter(egui::LayerId::background());
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(400., 300.));
+            let options = ChartOptions {
+                log_x: true,
+                show_legend: false,
+                x_min: Some(1.),
+                x_max: Some(1000.),
+                y_min: Some(0.),
+                y_max: Some(10.),
+                ..Default::default()
+            };
+            let curves = Ok(vec![
+                ("a".into(), vec![Some([1., 1.]), None, Some([1.0e8, 5.])]),
+                ("b".into(), vec![Some([-1., 5.]), Some([31.6, 5.])]),
+            ]);
+            let center = Pos2::new(220.5, 140.5);
+            let snap = draw(
+                &painter,
+                rect,
+                &curves,
+                &options,
+                false,
+                2.,
+                Some(center),
+                false,
+                TraceMode::Data,
+            )
+            .unwrap();
+            assert_eq!(snap.series, Some(1));
+            assert_eq!(snap.coordinates, [31.6, 5.]);
+            let cursor = draw(
+                &painter,
+                rect,
+                &curves,
+                &options,
+                false,
+                2.,
+                Some(Pos2::new(56. + (385. - 56.) / 4., center.y)),
+                false,
+                TraceMode::Cursor,
+            )
+            .unwrap();
+            assert!(cursor.series.is_none());
+            assert!((cursor.coordinates[0] - 10_f64.powf(1.125)).abs() < 1e-10);
+            assert_eq!(cursor.coordinates[1], 5.);
+            assert!(draw(
+                &painter,
+                rect,
+                &curves,
+                &options,
+                false,
+                2.,
+                Some(Pos2::new(20., center.y)),
+                false,
+                TraceMode::Data
+            )
+            .is_none());
+        });
     }
 }
