@@ -503,6 +503,7 @@ pub struct FormulaSource {
     pub statement: Range<usize>,
     pub input_number: Option<Range<usize>>,
     pub source: Option<String>,
+    pub native_symbolic_commands: bool,
     eval_in_definition: bool,
     unit_override: Option<Range<usize>>,
     namespaces: String,
@@ -569,6 +570,12 @@ impl FormulaSource {
             statement: statement.range(),
             input_number,
             source: print_formula(statement, 0).ok(),
+            native_symbolic_commands: statement.descendants().any(|node| {
+                named(node, ML, "command")
+                    && node
+                        .parent()
+                        .is_some_and(|parent| named(parent, ML, "symEval"))
+            }),
             eval_in_definition: definition_body.is_some() && named(expression, ML, "eval"),
             unit_override,
             namespaces,
@@ -576,6 +583,9 @@ impl FormulaSource {
     }
 
     pub fn replacement(&self, xml: &str, source: &str) -> Calc<String> {
+        if self.native_symbolic_commands {
+            return Err("правка импортированных символьных команд пока не поддерживается".into());
+        }
         if source.len() > MAX_FORMULA_BYTES {
             return Err("формула слишком длинная".into());
         }
@@ -665,7 +675,22 @@ fn print_formula(node: Xml<'_, '_>, level: usize) -> Calc<String> {
             )
         }
         ("eval", [value, ..]) => format!("{} =", print(*value)?),
-        ("symEval", [value, ..]) => format!("{} ->", print(*value)?),
+        ("symEval", [value, rest @ ..]) => {
+            let commands = rest
+                .iter()
+                .copied()
+                .filter(|&part| named(part, ML, "command"))
+                .map(|command| {
+                    let field = elements(command)
+                        .next()
+                        .ok_or("пустая символьная команда")?;
+                    print(field)
+                })
+                .collect::<Calc<Vec<_>>>()?;
+            format!("{} -> {}", print(*value)?, commands.join("; "))
+                .trim_end()
+                .to_owned()
+        }
         ("id", _) => identifier(node)?,
         ("real", _) => node.text().unwrap_or_default().trim().into(),
         ("imag", _) => format!("{}i", node.text().unwrap_or_default().trim()),
@@ -819,10 +844,10 @@ pub fn export_xml(xml: &str, changed: bool) -> Calc<String> {
     if changed || new_encoding {
         for node in doc.root().descendants() {
             let cached = changed
-                && named(node, ML, "result")
-                && node
-                    .parent()
-                    .is_some_and(|parent| named(parent, ML, "eval"));
+                && node.parent().is_some_and(|parent| {
+                    (named(node, ML, "result") && named(parent, ML, "eval"))
+                        || (named(node, ML, "symResult") && named(parent, ML, "symEval"))
+                });
             let rendering = changed
                 && named(node, WS, "rendering")
                 && node
@@ -832,7 +857,12 @@ pub fn export_xml(xml: &str, changed: bool) -> Calc<String> {
                 && node
                     .pi()
                     .is_some_and(|pi| pi.target == "validation-md5-digest");
-            if cached || rendering || digest {
+            if (cached || rendering || digest)
+                && !node
+                    .ancestors()
+                    .skip(1)
+                    .any(|parent| named(parent, ML, "symResult") || named(parent, ML, "result"))
+            {
                 edits.push((node.range(), String::new()));
             }
         }

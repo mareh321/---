@@ -2053,6 +2053,11 @@ impl Workbench {
         let Some(edit) = region.visual.editor.as_ref() else {
             return;
         };
+        if edit.native_symbolic_commands {
+            self.error =
+                Some("Правка импортированных символьных команд пока не поддерживается".into());
+            return;
+        }
         let source = if self.document.sheet.edited(index) {
             let label = &region.label;
             let unit = region
@@ -2090,6 +2095,11 @@ impl Workbench {
         let Some(edit) = self.document.sheet.regions[index].visual.editor.as_ref() else {
             return;
         };
+        if edit.native_symbolic_commands {
+            self.error =
+                Some("Правка импортированных символьных команд пока не поддерживается".into());
+            return;
+        }
         let draft = if self.document.sheet.edited(index) {
             let label = &self.document.sheet.regions[index].label;
             let unit = self.document.sheet.regions[index]
@@ -4412,6 +4422,7 @@ impl Workbench {
                 .visual
                 .editor
                 .as_ref()
+                .filter(|edit| !edit.native_symbolic_commands)
                 .and_then(|e| e.source.as_deref())
                 .map(parse_source_to_slot)
                 .filter(|slot| slot.has_2d_structures());
@@ -5431,6 +5442,55 @@ mod tests {
                 result
             );
         }
+    }
+
+    #[test]
+    fn mathcad_symbolic_commands_recalculate_and_survive_saving_a_copy() {
+        let original = include_str!("../fixtures/mathcad15-symbolic.xmcd");
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        app.replace(Worksheet::load(original, "Mathcad 15".into(), None).unwrap());
+        let substitute = app.document.by_id("4").unwrap();
+        let initial = app.document.sheet.display(substitute).unwrap();
+        assert!(initial.contains("y") && initial.contains("9"), "{initial}");
+        assert!(app.document.sheet.regions[substitute]
+            .visual
+            .formula
+            .contains("substitute"));
+        app.start_formula_inline(substitute);
+        assert!(app.insertion.is_none());
+        assert!(app.document.apply_formula(substitute, "x ->").is_err());
+
+        app.document
+            .update_input(app.document.by_id("1").unwrap(), Some(4.))
+            .unwrap();
+        let copy = app.document.export().unwrap();
+        let original_xml = roxmltree::Document::parse(original).unwrap();
+        let copy_xml = roxmltree::Document::parse(&copy).unwrap();
+        let command_count = |xml: &roxmltree::Document<'_>| {
+            xml.descendants()
+                .filter(|node| node.has_tag_name(("http://schemas.mathsoft.com/math30", "command")))
+                .count()
+        };
+        assert_eq!(command_count(&original_xml), 7);
+        assert_eq!(command_count(&copy_xml), 7);
+        assert!(!copy_xml
+            .descendants()
+            .any(|node| node.has_tag_name(("http://schemas.mathsoft.com/math30", "symResult"))));
+
+        let reopened = Worksheet::load(&copy, "Копия".into(), None).unwrap();
+        assert_eq!(
+            reopened
+                .sheet
+                .display(reopened.by_id("2").unwrap())
+                .unwrap(),
+            "4"
+        );
+        let updated = reopened
+            .sheet
+            .display(reopened.by_id("4").unwrap())
+            .unwrap();
+        assert!(updated.contains("y") && updated.contains("16"), "{updated}");
     }
 
     #[test]

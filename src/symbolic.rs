@@ -20,6 +20,19 @@ pub struct SymResult {
     pub domain: Vec<String>,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct SymbolicProgram {
+    expression: SymExpr,
+    commands: Vec<SymbolicCommand>,
+}
+
+#[derive(Debug, PartialEq)]
+enum SymbolicCommand {
+    Simplify,
+    Expand,
+    Substitute(HashMap<String, SymExpr>),
+}
+
 impl fmt::Display for SymResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.display)?;
@@ -892,7 +905,161 @@ impl fmt::Display for SymExpr {
     }
 }
 
-pub fn from_ml_node(node: Xml<'_, '_>, depth: usize) -> Calc<SymExpr> {
+impl SymbolicProgram {
+    pub fn from_xml(node: Xml<'_, '_>) -> Calc<Self> {
+        let mut children = elements(node);
+        let operand = children.next().ok_or("пустое символьное выражение")?;
+        let mut commands = Vec::new();
+        for child in children {
+            if named(child, ML, "symResult") {
+                continue;
+            }
+            if !named(child, ML, "command") {
+                return Err(format!(
+                    "неподдерживаемое поле символьного вычисления <{}>",
+                    kind(child)
+                ));
+            }
+            if commands.len() >= 16 {
+                return Err("слишком много символьных команд".into());
+            }
+            commands.push(SymbolicCommand::from_xml(child)?);
+        }
+        Ok(Self {
+            expression: from_ml_node(operand, 0)?,
+            commands,
+        })
+    }
+
+    pub fn collect_vars(&self, vars: &mut HashSet<String>) {
+        self.expression.collect_vars(vars);
+        for command in &self.commands {
+            if let SymbolicCommand::Substitute(replacements) = command {
+                for value in replacements.values() {
+                    value.collect_vars(vars);
+                }
+            }
+        }
+    }
+
+    pub fn evaluate(&self, env: &HashMap<String, SymExpr>) -> Calc<SymResult> {
+        if self.commands.is_empty() {
+            return eval_symbolic(&self.expression, env);
+        }
+        let mut result = substitute_bounded(&self.expression, env)?;
+        // Keep the original expression available for domain checks even if a
+        // transformation cancels a denominator before the next substitution.
+        let mut domain_source = result.clone();
+        for command in &self.commands {
+            result = match command {
+                SymbolicCommand::Simplify => result.simplify()?,
+                SymbolicCommand::Expand => result.expand()?,
+                SymbolicCommand::Substitute(replacements) => {
+                    let replacements = replacements
+                        .iter()
+                        .map(|(name, value)| Ok((name.clone(), substitute_bounded(value, env)?)))
+                        .collect::<Calc<HashMap<_, _>>>()?;
+                    domain_source = substitute_bounded(&domain_source, &replacements)?;
+                    substitute_bounded(&result, &replacements)?
+                }
+            };
+        }
+        domain_source.simplify()?;
+        let domain = domain_source.collect_domain();
+        let result = result.simplify()?;
+        Ok(SymResult {
+            display: result.to_string(),
+            expr: Some(result),
+            domain,
+        })
+    }
+}
+
+fn substitute_bounded(expr: &SymExpr, env: &HashMap<String, SymExpr>) -> Calc<SymExpr> {
+    fn count(
+        expr: &SymExpr,
+        env: Option<&HashMap<String, SymExpr>>,
+        remaining: &mut usize,
+        depth: usize,
+    ) -> Calc<()> {
+        if depth > 64 || *remaining == 0 {
+            return Err("слишком большое выражение после символьной подстановки".into());
+        }
+        *remaining -= 1;
+        match expr {
+            SymExpr::Var(name) => {
+                if let Some(replacement) = env.and_then(|values| values.get(name)) {
+                    count(replacement, None, remaining, depth)?;
+                }
+            }
+            SymExpr::Add(items) | SymExpr::Mul(items) | SymExpr::Func(_, items) => {
+                for item in items {
+                    count(item, env, remaining, depth + 1)?;
+                }
+            }
+            SymExpr::Pow(base, exponent) => {
+                count(base, env, remaining, depth + 1)?;
+                count(exponent, env, remaining, depth + 1)?;
+            }
+            SymExpr::Num(_) => {}
+        }
+        Ok(())
+    }
+
+    count(expr, Some(env), &mut 16_384, 0)?;
+    Ok(expr.substitute_map(env))
+}
+
+impl SymbolicCommand {
+    fn from_xml(node: Xml<'_, '_>) -> Calc<Self> {
+        let mut fields = elements(node);
+        let field = fields.next().ok_or("пустая символьная команда")?;
+        if fields.next().is_some() {
+            return Err("неверная структура символьной команды".into());
+        }
+        let args: Vec<_> = if named(field, ML, "sequence") {
+            elements(field).take(34).collect()
+        } else {
+            vec![field]
+        };
+        let (keyword, args) = args.split_first().ok_or("пустая символьная команда")?;
+        let keyword = identifier(*keyword).map_err(|_| "не задано символьное ключевое слово")?;
+        match (keyword.as_str(), args) {
+            ("simplify", []) => Ok(Self::Simplify),
+            ("expand", []) => Ok(Self::Expand),
+            ("substitute", equations) if (1..=32).contains(&equations.len()) => {
+                let mut replacements = HashMap::with_capacity(equations.len());
+                for &equation in equations {
+                    let mut terms = elements(equation);
+                    let operator = terms
+                        .next()
+                        .ok_or("substitute: ожидается имя = выражение")?;
+                    let name = terms.next().ok_or("substitute: отсутствует имя")?;
+                    let value = terms.next().ok_or("substitute: отсутствует выражение")?;
+                    if !named(equation, ML, "apply")
+                        || !named(operator, ML, "equal")
+                        || terms.next().is_some()
+                    {
+                        return Err("substitute: ожидается имя = выражение".into());
+                    }
+                    let name = identifier(name)?;
+                    if replacements.insert(name, from_ml_node(value, 0)?).is_some() {
+                        return Err("substitute: имя встречается дважды".into());
+                    }
+                }
+                Ok(Self::Substitute(replacements))
+            }
+            ("simplify" | "expand" | "substitute", _) => Err(format!(
+                "неподдерживаемые аргументы символьной команды {keyword}"
+            )),
+            _ => Err(format!(
+                "символьная команда {keyword} пока не поддерживается"
+            )),
+        }
+    }
+}
+
+fn from_ml_node(node: Xml<'_, '_>, depth: usize) -> Calc<SymExpr> {
     if depth > 64 || node.tag_name().namespace() != Some(ML) {
         return Err("неподдерживаемое символьное выражение".into());
     }
@@ -903,8 +1070,16 @@ pub fn from_ml_node(node: Xml<'_, '_>, depth: usize) -> Calc<SymExpr> {
             SymExpr::num(val)
         }
         "id" => Ok(SymExpr::var(identifier(node)?)),
-        "parens" | "eval" | "symEval" => {
+        "parens" | "eval" => {
             let child = elements(node).next().ok_or("пустое символьное выражение")?;
+            from_ml_node(child, depth + 1)
+        }
+        "symEval" => {
+            let mut children = elements(node);
+            let child = children.next().ok_or("пустое символьное выражение")?;
+            if children.any(|node| !named(node, ML, "symResult")) {
+                return Err("вложенные символьные команды пока не поддерживаются".into());
+            }
             from_ml_node(child, depth + 1)
         }
         "apply" => {
@@ -975,6 +1150,52 @@ pub fn eval_symbolic(expr: &SymExpr, env: &HashMap<String, SymExpr>) -> Calc<Sym
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_commands_match_mathcad_results() {
+        let xml = roxmltree::Document::parse(include_str!("../fixtures/mathcad15-symbolic.xmcd"))
+            .unwrap();
+        let mut expected_count = 0;
+        for node in xml.descendants().filter(|&node| named(node, ML, "symEval")) {
+            let region = node.parent().unwrap().parent().unwrap();
+            let mut env = HashMap::from([("n".into(), SymExpr::Num(3.))]);
+            if region.attribute("region-id") == Some("7") {
+                env.insert("x".into(), SymExpr::Num(7.));
+            }
+            let program = SymbolicProgram::from_xml(node).unwrap();
+            let actual = program.evaluate(&env).unwrap().expr.unwrap();
+            let result = elements(node)
+                .find(|&node| named(node, ML, "symResult"))
+                .unwrap();
+            let expected = from_ml_node(elements(result).next().unwrap(), 0).unwrap();
+            assert_eq!(
+                actual,
+                expected.simplify().unwrap(),
+                "region {:?}",
+                region.attribute("region-id")
+            );
+            expected_count += 1;
+        }
+        assert_eq!(expected_count, 6);
+    }
+
+    #[test]
+    fn rejects_unknown_commands_and_modifiers_even_with_saved_results() {
+        for (command, expected) in [
+            ("<id>factor</id>", "команда factor пока не поддерживается"),
+            (
+                "<sequence><id>simplify</id><id>trig</id></sequence>",
+                "аргументы символьной команды simplify",
+            ),
+        ] {
+            let source = format!(
+                r#"<symEval xmlns="{ML}"><real>2</real><command>{command}</command><symResult><real>2</real></symResult></symEval>"#
+            );
+            let xml = roxmltree::Document::parse(&source).unwrap();
+            let error = SymbolicProgram::from_xml(xml.root_element()).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        }
+    }
 
     #[test]
     fn simplifies_expands_differentiates_and_solves_symbolically() {

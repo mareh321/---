@@ -161,7 +161,20 @@ fn notation<'a, 'input>(node: Xml<'a, 'input>, depth: usize) -> (String, u8) {
             (format!("{} ≡ {}", descend(*left).0, descend(*right).0), 0)
         }
         ("eval", [body, ..]) => descend(*body),
-        ("symEval", [body, ..]) => (format!("{} →", descend(*body).0), 0),
+        ("symEval", [body, rest @ ..]) => {
+            let commands: Vec<_> = rest
+                .iter()
+                .copied()
+                .filter(|&item| named(item, ML, "command"))
+                .collect();
+            let body = descend(*body).0;
+            if commands.is_empty() {
+                (format!("{body} →"), 0)
+            } else {
+                (format!("{body}  {} →", combine(&commands, "; ")), 0)
+            }
+        }
+        ("command", [field]) => descend(*field),
         ("parens", [body]) => (format!("({})", descend(*body).0), 9),
         ("function", [name, vars]) => (format!("{}({})", descend(*name).0, descend(*vars).0), 9),
         ("sequence" | "boundVars", _) => (combine(&items, ", "), 0),

@@ -603,7 +603,7 @@ pub enum Expr {
     Assign(Box<IndexedAssignment>),
     Program(Vec<Stmt>),
     Calculus(Box<CalculusExpr>),
-    Symbolic(Box<crate::symbolic::SymExpr>, Vec<(String, usize)>),
+    Symbolic(Box<crate::symbolic::SymbolicProgram>, Vec<(String, usize)>),
     SolveBlock(Box<SolveBlockExpr>),
 }
 
@@ -992,7 +992,7 @@ impl Expr {
                         }
                     }
                 }
-                let result = crate::symbolic::eval_symbolic(sym, &env)?;
+                let result = sym.evaluate(&env)?;
                 Ok(Datum::Symbolic(Arc::new(result)))
             }
             Self::Calculus(calc) => Ok(calc.evaluate(ctx)?.into()),

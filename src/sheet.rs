@@ -745,7 +745,7 @@ impl Sheet {
                         region.formula = Some(if disabled {
                             Err("вычисление отключено в исходном листе".into())
                         } else {
-                            crate::symbolic::from_ml_node(statement, 0).map(|sym| {
+                            crate::symbolic::SymbolicProgram::from_xml(statement).map(|sym| {
                                 let mut used = std::collections::HashSet::new();
                                 sym.collect_vars(&mut used);
                                 let mut bindings = Vec::new();
