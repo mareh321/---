@@ -33,6 +33,7 @@ pub enum PaletteTab {
     Operators,
     Plots,
     Matrix,
+    Evaluation,
     Calculus,
     Symbolic,
     Program,

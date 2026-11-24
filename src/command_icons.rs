@@ -6,14 +6,18 @@ pub enum Icon {
     Open,
     Save,
     ExportPdf,
+    Preview,
     Cut,
     Copy,
     Paste,
     Undo,
     Redo,
+    AlignTop,
+    AlignLeft,
     Formula,
     Text,
     Graph,
+    Table,
 }
 
 pub fn button(ui: &mut egui::Ui, icon: Icon, tooltip: &str, enabled: bool) -> bool {
@@ -109,6 +113,11 @@ pub fn button(ui: &mut egui::Ui, icon: Icon, tooltip: &str, enabled: bool) -> bo
             line(&[(13., 8.), (13., 15.)], blue);
             line(&[(10., 12.), (13., 15.), (16., 12.)], blue);
         }
+        Icon::Preview => {
+            page(9.);
+            painter.circle_stroke(point(11.5, 10.5), 3.2, blue);
+            line(&[(14., 13.), (17., 16.)], blue);
+        }
         Icon::Cut => {
             painter.circle_stroke(point(5., 14.), 2.4, stroke);
             painter.circle_stroke(point(13., 14.), 2.4, stroke);
@@ -144,6 +153,22 @@ pub fn button(ui: &mut egui::Ui, icon: Icon, tooltip: &str, enabled: bool) -> bo
                 stroke,
             );
             line(&[(x(6.), 4.), (x(2.), 8.), (x(6.), 12.)], blue);
+        }
+        Icon::AlignTop => {
+            line(&[(2., 4.), (16., 4.)], blue);
+            outline(4., 7., 7., 12., stroke);
+            outline(10., 7., 13., 16., stroke);
+        }
+        Icon::AlignLeft => {
+            line(&[(3., 2.), (3., 16.)], blue);
+            outline(6., 4., 12., 7., stroke);
+            outline(6., 10., 16., 13., stroke);
+        }
+        Icon::Table => {
+            outline(2., 3., 16., 15., stroke);
+            line(&[(2., 7.), (16., 7.)], blue);
+            line(&[(2., 11.), (16., 11.)], stroke);
+            line(&[(9., 7.), (9., 15.)], stroke);
         }
         Icon::Formula | Icon::Text => {
             let label = if matches!(icon, Icon::Formula) {

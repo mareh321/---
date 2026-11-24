@@ -304,6 +304,15 @@ pub const GROUPS: &[GroupMeta] = &[
         ],
     },
     GroupMeta {
+        tab: PaletteTab::Evaluation,
+        id: "group.evaluation",
+        title: "Вычисление",
+        tab_label: "Вычисление",
+        tooltip: "Определения, численный и символьный вывод",
+        icon: ToolIcon::Glyph("x="),
+        synonyms: &["вычисление", "присваивание", "результат", "evaluation"],
+    },
+    GroupMeta {
         tab: PaletteTab::Calculus,
         id: "group.calculus",
         title: "Анализ",
@@ -322,18 +331,19 @@ pub const GROUPS: &[GroupMeta] = &[
         ],
     },
     GroupMeta {
-        tab: PaletteTab::Symbolic,
-        id: "group.symbolic",
-        title: "Символьные",
-        tab_label: "Символьные",
-        tooltip: "Символьный вывод →, упрощение, раскрытие скобок и аналитические решения",
-        icon: ToolIcon::SymArrow,
+        tab: PaletteTab::Logic,
+        id: "group.logic",
+        title: "Логика",
+        tab_label: "Логика",
+        tooltip: "Булевы сравнения, условия и базовая статистика",
+        icon: ToolIcon::LogicBadge,
         synonyms: &[
-            "символьные",
-            "символика",
-            "алгебра",
-            "упрощение",
-            "symbolic",
+            "логика",
+            "сравнения",
+            "булевы",
+            "условия",
+            "статистика",
+            "logic",
         ],
     },
     GroupMeta {
@@ -363,19 +373,18 @@ pub const GROUPS: &[GroupMeta] = &[
         synonyms: &["греческие буквы", "греческий", "алфавит", "αβγ", "greek"],
     },
     GroupMeta {
-        tab: PaletteTab::Logic,
-        id: "group.logic",
-        title: "Логика",
-        tab_label: "Логика",
-        tooltip: "Булевы сравнения, условия и базовая статистика",
-        icon: ToolIcon::LogicBadge,
+        tab: PaletteTab::Symbolic,
+        id: "group.symbolic",
+        title: "Символьные",
+        tab_label: "Символьные",
+        tooltip: "Символьный вывод →, упрощение, раскрытие скобок и аналитические решения",
+        icon: ToolIcon::SymArrow,
         synonyms: &[
-            "логика",
-            "сравнения",
-            "булевы",
-            "условия",
-            "статистика",
-            "logic",
+            "символьные",
+            "символика",
+            "алгебра",
+            "упрощение",
+            "symbolic",
         ],
     },
 ];
@@ -450,7 +459,7 @@ pub const TOOLS: &[ToolItem] = &[
     },
     ToolItem {
         id: "op.define",
-        group: PaletteTab::Operators,
+        group: PaletteTab::Evaluation,
         name: "Определение :=",
         short_label: "",
         tooltip: "Определение :=\nПрисваивание переменной или функции",
@@ -461,7 +470,7 @@ pub const TOOLS: &[ToolItem] = &[
     },
     ToolItem {
         id: "op.global_define",
-        group: PaletteTab::Operators,
+        group: PaletteTab::Evaluation,
         name: "Глобальное определение ≡",
         short_label: "",
         tooltip: "Глобальное определение ≡ (===)\nДействует по всему листу",
@@ -472,7 +481,7 @@ pub const TOOLS: &[ToolItem] = &[
     },
     ToolItem {
         id: "op.eval",
-        group: PaletteTab::Operators,
+        group: PaletteTab::Evaluation,
         name: "Вывод результата =",
         short_label: "",
         tooltip: "Вывод результата =\nЧисленное вычисление выражения",
@@ -982,6 +991,17 @@ pub const TOOLS: &[ToolItem] = &[
         action: ToolAction::Math(PaletteAction::Call("pnorm")),
     },
     // --- Символьные ---
+    ToolItem {
+        id: "op.sym_eval",
+        group: PaletteTab::Evaluation,
+        name: "Символьное вычисление →",
+        short_label: "",
+        tooltip: "Символьное вычисление expr ->\nАналитическое преобразование",
+        shortcut: None,
+        icon: ToolIcon::SymArrow,
+        synonyms: &["символьное", "стрелка", "->", "→", "аналитически"],
+        action: ToolAction::Math(PaletteAction::Raw(" ->")),
+    },
     ToolItem {
         id: "sym.arrow",
         group: PaletteTab::Symbolic,
@@ -2789,8 +2809,8 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn catalog_ids_are_unique_and_cover_all_eight_groups() {
-        assert_eq!(GROUPS.len(), 8);
+    fn catalog_ids_are_unique_and_cover_all_nine_groups() {
+        assert_eq!(GROUPS.len(), 9);
         let mut ids = HashSet::new();
         for item in TOOLS {
             assert!(ids.insert(item.id), "duplicate tool id: {}", item.id);

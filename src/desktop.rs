@@ -255,6 +255,23 @@ struct PlotRegion {
     zoom: f64,
 }
 
+#[derive(Clone, Copy)]
+enum PlotZoom {
+    Out,
+    In,
+    Reset,
+}
+
+impl PlotRegion {
+    fn change_zoom(&mut self, change: PlotZoom) {
+        self.zoom = match change {
+            PlotZoom::Out => (self.zoom / 1.4).max(0.25),
+            PlotZoom::In => (self.zoom * 1.4).min(16.0),
+            PlotZoom::Reset => 1.0,
+        };
+    }
+}
+
 struct Plot3dRegion {
     spec: editing::Plot3dSpec,
     grid: Calc<list_rs::sheet::SurfaceGrid>,
@@ -875,6 +892,24 @@ enum Open {
     Close,
 }
 
+enum InsertCommand {
+    Formula,
+    Text,
+    Tool(tool_ribbon::ToolAction),
+    Csv,
+    Reference,
+    PageBreak,
+    Area,
+    Image,
+}
+
+#[derive(Clone)]
+struct SheetMenu {
+    anchor: Pos2,
+    at: Pos2,
+    region_id: Option<String>,
+}
+
 enum DraftRegion {
     Formula {
         math: MathEditor,
@@ -1475,6 +1510,13 @@ impl Workbench {
         } else {
             self.position_for_insert()
         };
+        self.paste_clipboard_at(target);
+    }
+
+    fn paste_clipboard_at(&mut self, target: Pos2) {
+        if self.clipboard.is_empty() {
+            return;
+        }
         let snap = self.document.snapshot();
         match self
             .document
@@ -1507,6 +1549,36 @@ impl Workbench {
             }
             Err(error) => self.error = Some(error),
         }
+    }
+
+    fn align_selected(&mut self, by_top: bool) {
+        if self.selected_ids.len() < 2 {
+            return;
+        }
+        let regions: Vec<_> = self
+            .selected_ids
+            .iter()
+            .filter_map(|id| {
+                let index = self.document.by_id(id).ok()?;
+                Some((id, &self.document.sheet.regions[index].visual))
+            })
+            .collect();
+        let edge = regions
+            .iter()
+            .map(|(_, v)| if by_top { v.top } else { v.left })
+            .fold(f32::INFINITY, f32::min);
+        let moves: Vec<_> = regions
+            .into_iter()
+            .filter_map(|(id, visual)| {
+                let (left, top) = if by_top {
+                    (visual.left, edge)
+                } else {
+                    (edge, visual.top)
+                };
+                ((left, top) != (visual.left, visual.top)).then(|| (id.clone(), left, top))
+            })
+            .collect();
+        self.move_selected_to(&moves);
     }
 
     fn refresh_details(&mut self, index: usize) {
@@ -1572,6 +1644,7 @@ impl Workbench {
             || self.insertion.is_some()
             || ctx.wants_keyboard_input()
             || self.tool_search.is_blocking_sheet(ctx)
+            || egui::Popup::is_id_open(ctx, self.sheet_menu_id())
         {
             return;
         }
@@ -3034,6 +3107,63 @@ impl Workbench {
         }
     }
 
+    fn insert_region_menu(&mut self, ui: &mut egui::Ui, at: Option<Pos2>) {
+        use tool_ribbon::ToolAction;
+        for (label, command) in [
+            ("Формула", InsertCommand::Formula),
+            ("Текстовый регион", InsertCommand::Text),
+            ("Таблица данных…", InsertCommand::Tool(ToolAction::Table)),
+            ("Ввод из файла CSV…", InsertCommand::Csv),
+            ("Подключить лист XMCD…", InsertCommand::Reference),
+            ("Сворачиваемая область…", InsertCommand::Area),
+            ("Разрыв страницы", InsertCommand::PageBreak),
+            ("Изображение (PNG / BMP / JPEG)…", InsertCommand::Image),
+            ("График X–Y", InsertCommand::Tool(ToolAction::ChartXY)),
+            (
+                "Параметрический график",
+                InsertCommand::Tool(ToolAction::ChartParametric),
+            ),
+            (
+                "Полярный график",
+                InsertCommand::Tool(ToolAction::ChartPolar),
+            ),
+            (
+                "3D-поверхность",
+                InsertCommand::Tool(ToolAction::Plot3dSurface),
+            ),
+            (
+                "Контурный график",
+                InsertCommand::Tool(ToolAction::Plot3dContour),
+            ),
+        ] {
+            if !ui.button(label).clicked() {
+                continue;
+            }
+            if let Some(at) = at {
+                self.caret = Some(at);
+            }
+            ui.close();
+            match command {
+                InsertCommand::Formula => self.start_insert(formula_draft(String::new())),
+                InsertCommand::Text => self.start_insert(new_text_draft()),
+                InsertCommand::Tool(action) => self.apply_tool_action(action),
+                InsertCommand::Csv => self.import_csv_from_picker(),
+                InsertCommand::Reference => self.insert_reference_from_picker(),
+                InsertCommand::PageBreak => self.insert_page_break(),
+                InsertCommand::Area => {
+                    self.area_dialog = Some(AreaDialog {
+                        title: "Область расчёта".into(),
+                        top: self.position_for_insert().y,
+                        height: 180.0,
+                        error: None,
+                    });
+                }
+                InsertCommand::Image => self.insert_image_from_picker(),
+            }
+            break;
+        }
+    }
+
     fn menu_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu_bar")
             .exact_height(26.)
@@ -3247,69 +3377,7 @@ impl Workbench {
                         }
                     });
                     ui.menu_button("Вставка", |ui| {
-                        if ui.button("Формула").clicked() {
-                            self.start_insert(formula_draft(String::new()));
-                            ui.close();
-                        }
-                        if ui.button("Текстовый регион").clicked() {
-                            self.start_insert(new_text_draft());
-                            ui.close();
-                        }
-                        if ui.button("Таблица данных / CSV…").clicked() {
-                            self.table_editor = Some(TableEditor::empty("Data", 3, 2));
-                            ui.close();
-                        }
-                        if ui.button("Подключить лист XMCD…").clicked() {
-                            self.insert_reference_from_picker();
-                            ui.close();
-                        }
-                        if ui.button("Разрыв страницы").clicked() {
-                            self.insert_page_break();
-                            ui.close();
-                        }
-                        if ui.button("Сворачиваемая область…").clicked() {
-                            let at = self.position_for_insert();
-                            self.area_dialog = Some(AreaDialog {
-                                title: "Область расчёта".into(),
-                                top: at.y,
-                                height: 180.0,
-                                error: None,
-                            });
-                            ui.close();
-                        }
-                        if ui.button("Изображение (PNG / BMP / JPEG)…").clicked() {
-                            self.insert_image_from_picker();
-                            ui.close();
-                        }
-                        if ui.button("График X–Y").clicked() {
-                            self.start_insert(DraftRegion::Chart(Box::default()));
-                            ui.close();
-                        }
-                        if ui.button("Параметрический график").clicked() {
-                            self.start_insert(DraftRegion::Chart(Box::new(
-                                chart_view::Draft::parametric_preset(),
-                            )));
-                            ui.close();
-                        }
-                        if ui.button("Полярный график").clicked() {
-                            self.start_insert(DraftRegion::Chart(Box::new(
-                                chart_view::Draft::polar_preset(),
-                            )));
-                            ui.close();
-                        }
-                        if ui.button("3D-поверхность z(x, y)").clicked() {
-                            self.start_insert(DraftRegion::Plot3d(Box::new(
-                                plot3d_view::Draft3d::default_surface(),
-                            )));
-                            ui.close();
-                        }
-                        if ui.button("Контурный график (матрица / z(x, y))").clicked()
-                        {
-                            self.start_insert(DraftRegion::Plot3d(Box::new(
-                                plot3d_view::Draft3d::default_contour(),
-                            )));
-                            ui.close();
-                        }
+                        self.insert_region_menu(ui, None);
                         ui.separator();
                         if ui.button("Квадратный корень √x").clicked() {
                             self.apply_palette_action(math_view::PaletteAction::Sqrt);
@@ -3579,6 +3647,9 @@ impl Workbench {
                     ) {
                         self.export_pdf_report_picker(ctx);
                     }
+                    if button(ui, Icon::Preview, "Предпросмотр печати", ready) {
+                        self.print_preview = !self.print_preview;
+                    }
                     ui.separator();
                     let selected = !self.selected_ids.is_empty();
                     if button(ui, Icon::Cut, "Вырезать регионы (Ctrl+X)", selected) {
@@ -3614,6 +3685,24 @@ impl Workbench {
                         self.redo();
                     }
                     ui.separator();
+                    let group_selected = self.selected_ids.len() > 1;
+                    if button(
+                        ui,
+                        Icon::AlignTop,
+                        "Выровнять по верхнему краю",
+                        group_selected,
+                    ) {
+                        self.align_selected(true);
+                    }
+                    if button(
+                        ui,
+                        Icon::AlignLeft,
+                        "Выровнять по левому краю",
+                        group_selected,
+                    ) {
+                        self.align_selected(false);
+                    }
+                    ui.separator();
                     if button(ui, Icon::Formula, "Вставить формулу", ready) {
                         self.start_insert(formula_draft(String::new()));
                     }
@@ -3623,6 +3712,10 @@ impl Workbench {
                     }
                     if button(ui, Icon::Graph, "Вставить график X–Y", ready) {
                         self.apply_tool_action(tool_ribbon::ToolAction::ChartXY);
+                    }
+                    if button(ui, Icon::Table, "Вставить таблицу данных", ready)
+                    {
+                        self.apply_tool_action(tool_ribbon::ToolAction::Table);
                     }
                     ui.separator();
                     let zoom = self.effective_zoom(self.sheet_width);
@@ -4070,17 +4163,17 @@ impl Workbench {
                                     .color(tool_ribbon::TEXT_MUTED),
                             );
                             if ui.small_button("−").clicked() {
-                                plot.zoom = (plot.zoom / 1.4).max(0.25);
+                                plot.change_zoom(PlotZoom::Out);
                             }
                             if ui.small_button("+").clicked() {
-                                plot.zoom = (plot.zoom * 1.4).min(16.0);
+                                plot.change_zoom(PlotZoom::In);
                             }
                             if ui
                                 .small_button("1:1")
                                 .on_hover_text("Сбросить приближение")
                                 .clicked()
                             {
-                                plot.zoom = 1.0;
+                                plot.change_zoom(PlotZoom::Reset);
                             }
                         });
                     }
@@ -4261,6 +4354,237 @@ impl Workbench {
             }
         }
         page_size
+    }
+
+    fn sheet_position(&self, page: Rect, zoom: f32, point: Pos2) -> Pos2 {
+        let position = self.document.origin + (point - page.min) / zoom - vec2(25., 26.);
+        position.max(Pos2::ZERO)
+    }
+
+    fn sheet_menu_id(&self) -> egui::Id {
+        egui::Id::new(("sheet_context_menu", self.generation))
+    }
+
+    fn sheet_context_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        page: Rect,
+        zoom: f32,
+        regions: &[(usize, Rect)],
+    ) {
+        let id = self.sheet_menu_id();
+        if self.insertion.is_some()
+            || self.pending.is_some()
+            || self.load.is_some()
+            || self.editor.is_some()
+            || self.table_editor.is_some()
+            || self.page_dialog.is_some()
+            || self.area_dialog.is_some()
+            || self.animation.is_some()
+        {
+            egui::Popup::close_id(ui.ctx(), id);
+            return;
+        }
+
+        let visible = page.intersect(ui.clip_rect());
+        if !visible.is_positive() {
+            return;
+        }
+        let context_click = ui
+            .input(|i| {
+                i.pointer
+                    .button_clicked(egui::PointerButton::Secondary)
+                    .then(|| i.pointer.interact_pos())
+                    .flatten()
+            })
+            .filter(|pos| visible.contains(*pos) && ui.rect_contains_pointer(visible));
+        let context_key = !self.tool_search.is_blocking_sheet(ui.ctx())
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::F10));
+        if let Some(anchor) = context_click {
+            let index = regions
+                .iter()
+                .rev()
+                .find(|(_, rect)| rect.contains(anchor))
+                .map(|(index, _)| *index);
+            let menu = SheetMenu {
+                anchor,
+                at: self.sheet_position(page, zoom, anchor),
+                region_id: index.map(|index| self.document.sheet.regions[index].source_id.clone()),
+            };
+            ui.ctx().data_mut(|data| data.insert_temp(id, menu));
+            egui::Popup::open_id(ui.ctx(), id);
+        } else if context_key {
+            let selected = self
+                .selected
+                .filter(|&index| regions.iter().any(|&(i, _)| i == index));
+            let anchor = selected
+                .and_then(|index| {
+                    regions
+                        .iter()
+                        .find(|(i, _)| *i == index)
+                        .map(|(_, rect)| rect.left_bottom())
+                })
+                .unwrap_or_else(|| {
+                    page.min
+                        + ((self.position_for_insert() - self.document.origin) + vec2(25., 26.))
+                            * zoom
+                })
+                .clamp(visible.min, visible.max);
+            let menu = SheetMenu {
+                anchor,
+                at: self.position_for_insert(),
+                region_id: selected
+                    .map(|index| self.document.sheet.regions[index].source_id.clone()),
+            };
+            ui.ctx().data_mut(|data| data.insert_temp(id, menu));
+            egui::Popup::open_id(ui.ctx(), id);
+        }
+        if !egui::Popup::is_id_open(ui.ctx(), id) {
+            return;
+        }
+        let Some(menu) = ui.ctx().data(|data| data.get_temp::<SheetMenu>(id)) else {
+            return;
+        };
+        egui::Popup::new(id, ui.ctx().clone(), menu.anchor, ui.layer_id())
+            .open_memory(None)
+            .kind(egui::PopupKind::Menu)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .layout(egui::Layout::top_down_justified(Align::Min))
+            .style(egui::containers::menu::menu_style)
+            .show(|ui| self.sheet_menu_items(ui, &menu));
+    }
+
+    fn sheet_menu_items(&mut self, ui: &mut egui::Ui, menu: &SheetMenu) {
+        let index = menu
+            .region_id
+            .as_deref()
+            .and_then(|id| self.document.by_id(id).ok());
+        let can_paste = !self.clipboard.is_empty();
+        if ui
+            .add_enabled(index.is_some(), egui::Button::new("Вырезать"))
+            .clicked()
+        {
+            ui.close();
+            if let Some(index) = index {
+                self.select_for_menu(index);
+                self.remove_selected(true);
+            }
+            return;
+        }
+        if ui
+            .add_enabled(index.is_some(), egui::Button::new("Копировать"))
+            .clicked()
+        {
+            ui.close();
+            if let Some(index) = index {
+                self.select_for_menu(index);
+                self.copy_selected();
+            }
+            return;
+        }
+        if ui
+            .add_enabled(can_paste, egui::Button::new("Вставить"))
+            .clicked()
+        {
+            ui.close();
+            self.paste_clipboard_at(menu.at);
+            return;
+        }
+        ui.separator();
+
+        let Some(index) = index else {
+            ui.menu_button("Вставить регион", |ui| {
+                self.insert_region_menu(ui, Some(menu.at))
+            });
+            return;
+        };
+        let group = self.is_selected_index(index) && self.selected_ids.len() > 1;
+        if group {
+            ui.menu_button("Выровнять", |ui| {
+                if ui.button("По верхнему краю").clicked() {
+                    ui.close();
+                    self.align_selected(true);
+                }
+                if ui.button("По левому краю").clicked() {
+                    ui.close();
+                    self.align_selected(false);
+                }
+            });
+        } else if self.document.plots.contains_key(&index) {
+            if ui.button("Формат…").clicked() {
+                ui.close();
+                self.edit_chart(index);
+            }
+            ui.menu_button("Масштаб", |ui| {
+                for (label, change) in [
+                    ("Увеличить", PlotZoom::In),
+                    ("Уменьшить", PlotZoom::Out),
+                    ("Сбросить", PlotZoom::Reset),
+                ] {
+                    if ui.button(label).clicked() {
+                        ui.close();
+                        if let Some(plot) = self.document.plots.get_mut(&index) {
+                            plot.change_zoom(change);
+                        }
+                    }
+                }
+                if ui.button("Границы осей…").clicked() {
+                    ui.close();
+                    self.edit_chart(index);
+                }
+            });
+        } else if self.document.plots3d.contains_key(&index) {
+            if ui.button("Формат 3D-графика…").clicked() {
+                ui.close();
+                self.edit_plot3d(index);
+            }
+        } else {
+            let region = &self.document.sheet.regions[index];
+            let editable_text = region.text.is_some()
+                && !region.visual.graphical
+                && !region.is_page_break()
+                && region.label != "Ссылка";
+            let editable_formula =
+                region.visual.editor.as_ref().is_some_and(|editor| {
+                    !editor.native_symbolic_commands && editor.source.is_some()
+                });
+            let table = editable_formula && self.document.sheet.region_real_matrix(index).is_some();
+            if editable_text && ui.button("Текст и оформление…").clicked() {
+                ui.close();
+                self.edit_text(index);
+            }
+            if editable_formula && ui.button("Изменить формулу").clicked() {
+                ui.close();
+                self.start_formula_inline(index);
+            }
+            if table && ui.button("Изменить таблицу…").clicked() {
+                ui.close();
+                self.open_table_for_region(index);
+            }
+            if table && ui.button("Вывод в файл CSV…").clicked() {
+                ui.close();
+                self.select_for_menu(index);
+                self.export_selected_csv();
+            }
+        }
+        if ui
+            .button(if group {
+                "Удалить регионы"
+            } else {
+                "Удалить регион"
+            })
+            .clicked()
+        {
+            ui.close();
+            self.select_for_menu(index);
+            self.remove_selected(false);
+        }
+    }
+
+    fn select_for_menu(&mut self, index: usize) {
+        if !self.is_selected_index(index) {
+            self.select(index);
+        }
     }
 
     fn paper(&mut self, ui: &mut egui::Ui, zoom: f32, viewport: egui::Vec2) {
@@ -5057,11 +5381,7 @@ impl Workbench {
             ui.ctx().request_repaint();
         } else if self.insertion.is_none() && self.drag.is_none() && sheet_response.clicked() {
             if let Some(click) = sheet_response.interact_pointer_pos() {
-                let relative = (click - page.min) / zoom - vec2(25., 26.);
-                self.caret = Some(Pos2::new(
-                    (relative.x + self.document.origin.x).max(0.),
-                    (relative.y + self.document.origin.y).max(0.),
-                ));
+                self.caret = Some(self.sheet_position(page, zoom, click));
                 self.selected = None;
                 self.selected_ids.clear();
                 self.details.clear();
@@ -5136,6 +5456,7 @@ impl Workbench {
                 _ => self.start_formula_inline(index),
             }
         }
+        self.sheet_context_menu(ui, page, zoom, &screen_rects);
         if let Some(id) = toggle_area_id {
             let before = self.document.snapshot();
             if self.document.toggle_area(&id).is_ok() {
@@ -5673,6 +5994,7 @@ impl eframe::App for Workbench {
             if self.insertion.is_none()
                 && !ctx.wants_keyboard_input()
                 && !self.tool_search.is_blocking_sheet(ctx)
+                && !egui::Popup::is_id_open(ctx, self.sheet_menu_id())
             {
                 if ctx.input(|i| i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(Key::Z)) {
                     self.undo();
@@ -6224,6 +6546,110 @@ mod tests {
         app.redo();
         let idx_b = app.document.by_id(&id_b).unwrap();
         assert!(app.document.sheet.display(idx_b).is_err());
+    }
+
+    #[test]
+    fn sheet_context_menu_keeps_group_selection_and_positions_paste_at_the_click() {
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        let first = app
+            .document
+            .insert(Pos2::new(45., 60.), editing::NewRegion::Formula("x := 10"))
+            .unwrap();
+        let second = app
+            .document
+            .insert(
+                Pos2::new(260., 115.),
+                editing::NewRegion::Formula("x + 1 ="),
+            )
+            .unwrap();
+        app.select(first);
+        app.toggle_select(second);
+        let selected = app.selected_ids.clone();
+        let before = app.document.xml.clone();
+        let tick = |app: &mut Workbench, events| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(880., 600.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| app.workspace(ctx),
+            );
+        };
+        let click = |app: &mut Workbench, pos| {
+            for pressed in [true, false] {
+                tick(
+                    app,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Secondary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        };
+        tick(&mut app, Vec::new());
+        let index = app.document.by_id(&selected[0]).unwrap();
+        let pos = app.document.rects[index].left_top() * NORMAL_ZOOM + vec2(3., 3.);
+        click(&mut app, pos);
+        let id = app.sheet_menu_id();
+        assert!(egui::Popup::is_id_open(&ctx, id));
+        let menu = ctx.data(|data| data.get_temp::<SheetMenu>(id)).unwrap();
+        assert_eq!(menu.region_id.as_deref(), Some(selected[0].as_str()));
+        assert_eq!(app.selected_ids, selected);
+        assert_eq!(app.document.xml, before);
+        assert!(app.undo_stack.is_empty());
+
+        app.copy_selected();
+        tick(
+            &mut app,
+            vec![egui::Event::Key {
+                key: Key::Escape,
+                physical_key: Some(Key::Escape),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(!egui::Popup::is_id_open(&ctx, id));
+        click(&mut app, Pos2::new(690., 370.));
+        let menu = ctx.data(|data| data.get_temp::<SheetMenu>(id)).unwrap();
+        assert!(menu.region_id.is_none());
+        app.paste_clipboard_at(menu.at);
+        assert_eq!(app.undo_stack.len(), 1);
+        assert_eq!(app.selected_ids.len(), 2);
+        let pasted =
+            &app.document.sheet.regions[app.document.by_id(&app.selected_ids[0]).unwrap()].visual;
+        assert!((pasted.left - menu.at.x).abs() <= 0.1);
+        assert!((pasted.top - menu.at.y).abs() <= 0.1);
+        app.undo();
+        assert_eq!(app.document.xml, before);
+    }
+
+    #[test]
+    fn aligning_a_group_updates_positions_and_undo_restores_them() {
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        for (left, top, source) in [(45., 60., "x := 10"), (260., 115., "x + 1 =")] {
+            let index = app
+                .document
+                .insert(Pos2::new(left, top), editing::NewRegion::Formula(source))
+                .unwrap();
+            app.toggle_select(index);
+        }
+        let before = app.document.xml.clone();
+        app.align_selected(true);
+        assert_eq!(app.document.sheet.regions[1].visual.top, 60.);
+        assert_eq!(app.document.sheet.display(1).unwrap(), "11");
+        app.align_selected(true);
+        assert_eq!(app.undo_stack.len(), 1);
+        app.undo();
+        assert_eq!(app.document.xml, before);
     }
 
     #[test]
