@@ -19,6 +19,9 @@ const HELP: &str = "list-rs [путь.xmcd или путь.xmcdz] [--once | --ch
 fn list(sheet: &Sheet) -> usize {
     let mut issues = 0;
     for (index, region) in sheet.regions.iter().enumerate() {
+        if region.imported {
+            continue;
+        }
         let number = index + 1;
         let source = &region.source_id;
         if let Some(text) = &region.text {
@@ -163,7 +166,8 @@ fn run() -> Calc<bool> {
         DEMO.into()
     };
     let start = Instant::now();
-    let mut sheet = Sheet::import(&xml)?;
+    let base_dir = path.as_deref().and_then(|p| Path::new(p).parent());
+    let mut sheet = Sheet::import_with_base(&xml, base_dir)?;
     let import_time = start.elapsed();
     let start = Instant::now();
     let count = sheet.full();

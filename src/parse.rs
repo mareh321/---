@@ -1,4 +1,4 @@
-use crate::eval::{Datum, Expr, Function, IndexedAssignment, Matrix, MAX_CELLS};
+use crate::eval::{Datum, Expr, Function, IndexedAssignment, Matrix, Stmt, MAX_CELLS};
 use crate::value::{Calc, Value};
 use roxmltree::Node;
 use std::{collections::HashMap, sync::Arc};
@@ -199,7 +199,8 @@ impl Compiler<'_> {
                 {
                     return Err("слишком много или повторяющиеся аргументы функции".into());
                 }
-                let body = self.compile(node, &params, 0)?;
+                let mut locals = Vec::new();
+                let body = self.compile(node, &params, &mut locals, 0)?;
                 Ok(Expr::Function(Arc::new(Function { params, body })))
             }
             Target::Indexed(name, args) => {
@@ -224,10 +225,198 @@ impl Compiler<'_> {
     }
 
     pub fn expression(&mut self, node: Xml<'_, '_>) -> Calc<Expr> {
-        self.compile(node, &[], 0)
+        let mut locals = Vec::new();
+        self.compile(node, &[], &mut locals, 0)
     }
 
-    fn compile(&mut self, node: Xml<'_, '_>, params: &[String], depth: usize) -> Calc<Expr> {
+    pub fn expression_with_locals(
+        &mut self,
+        node: Xml<'_, '_>,
+        initial_locals: &[String],
+    ) -> Calc<Expr> {
+        let mut locals = initial_locals.to_vec();
+        self.compile(node, &[], &mut locals, 0)
+    }
+
+    fn compile_block(
+        &mut self,
+        nodes: &[Xml<'_, '_>],
+        params: &[String],
+        locals: &mut Vec<String>,
+        depth: usize,
+    ) -> Calc<Vec<Stmt>> {
+        if depth > 96 {
+            return Err("слишком большая глубина программного блока".into());
+        }
+        let mut stmts: Vec<Stmt> = Vec::with_capacity(nodes.len());
+        for &node in nodes {
+            if node.tag_name().namespace() != Some(ML) {
+                return Err("неподдерживаемое пространство имён в программе".into());
+            }
+            match kind(node) {
+                "otherwise" => {
+                    let body_nodes: Vec<_> = elements(node).collect();
+                    let else_stmts =
+                        self.compile_stmt_list(&body_nodes, params, locals, depth + 1)?;
+                    if let Some(Stmt::If { else_branch, .. }) = stmts.last_mut() {
+                        *else_branch = else_stmts;
+                    } else {
+                        stmts.extend(else_stmts);
+                    }
+                }
+                _ => {
+                    stmts.push(self.compile_stmt(node, params, locals, depth + 1)?);
+                }
+            }
+        }
+        Ok(stmts)
+    }
+
+    fn compile_stmt_list(
+        &mut self,
+        nodes: &[Xml<'_, '_>],
+        params: &[String],
+        locals: &mut Vec<String>,
+        depth: usize,
+    ) -> Calc<Vec<Stmt>> {
+        if let [single] = nodes {
+            if named(*single, ML, "program") {
+                let inner: Vec<_> = elements(*single).collect();
+                return self.compile_block(&inner, params, locals, depth + 1);
+            }
+        }
+        self.compile_block(nodes, params, locals, depth + 1)
+    }
+
+    fn compile_stmt(
+        &mut self,
+        node: Xml<'_, '_>,
+        params: &[String],
+        locals: &mut Vec<String>,
+        depth: usize,
+    ) -> Calc<Stmt> {
+        if depth > 96 || node.tag_name().namespace() != Some(ML) {
+            return Err("неподдерживаемое пространство имён или глубина программы".into());
+        }
+        match kind(node) {
+            "localDefine" => {
+                let items: Vec<_> = elements(node).collect();
+                let [lhs, rhs, ..] = items.as_slice() else {
+                    return Err("localDefine требует переменную и выражение".into());
+                };
+                if named(*lhs, ML, "apply") {
+                    let mut lhs_parts = elements(*lhs);
+                    if let Some(op) = lhs_parts.next() {
+                        if named(op, ML, "indexer") {
+                            let idx_args = expand_sequence(lhs_parts);
+                            let (arr_node, idx_nodes) = idx_args
+                                .split_first()
+                                .ok_or("localDefine: нет имени массива")?;
+                            if !(1..=2).contains(&idx_nodes.len()) {
+                                return Err("ожидается один или два индекса".into());
+                            }
+                            let name = identifier(*arr_node)?;
+                            let indices = idx_nodes
+                                .iter()
+                                .map(|&n| self.compile(n, params, locals, depth + 1))
+                                .collect::<Calc<Vec<_>>>()?;
+                            let value = self.compile(*rhs, params, locals, depth + 1)?;
+                            if !locals.contains(&name) {
+                                locals.push(name.clone());
+                            }
+                            return Ok(Stmt::LocalIndexedAssign {
+                                name,
+                                indices,
+                                origin: self.origin(),
+                                value,
+                            });
+                        }
+                    }
+                }
+                let name = identifier(*lhs)?;
+                let expr = self.compile(*rhs, params, locals, depth + 1)?;
+                if !locals.contains(&name) {
+                    locals.push(name.clone());
+                }
+                Ok(Stmt::LocalAssign(name, expr))
+            }
+            "if" => {
+                let items: Vec<_> = elements(node).collect();
+                match items.as_slice() {
+                    [cond, then_node] => {
+                        let cond = self.compile(*cond, params, locals, depth + 1)?;
+                        let then_branch =
+                            self.compile_stmt_list(&[*then_node], params, locals, depth + 1)?;
+                        Ok(Stmt::If {
+                            cond,
+                            then_branch,
+                            else_branch: Vec::new(),
+                        })
+                    }
+                    [cond, then_node, else_node] => {
+                        let cond = self.compile(*cond, params, locals, depth + 1)?;
+                        let then_branch =
+                            self.compile_stmt_list(&[*then_node], params, locals, depth + 1)?;
+                        let else_nodes: Vec<_> = if named(*else_node, ML, "otherwise") {
+                            elements(*else_node).collect()
+                        } else {
+                            vec![*else_node]
+                        };
+                        let else_branch =
+                            self.compile_stmt_list(&else_nodes, params, locals, depth + 1)?;
+                        Ok(Stmt::If {
+                            cond,
+                            then_branch,
+                            else_branch,
+                        })
+                    }
+                    _ => Err("if в программе требует условие и ветку (и опционально иначе)".into()),
+                }
+            }
+            "for" => {
+                let items: Vec<_> = elements(node).collect();
+                let [var_node, iter_node, body_node] = items.as_slice() else {
+                    return Err("for требует переменную, диапазон/вектор и тело цикла".into());
+                };
+                let var = identifier(*var_node)?;
+                let iter = self.compile(*iter_node, params, locals, depth + 1)?;
+                if !locals.contains(&var) {
+                    locals.push(var.clone());
+                }
+                let body = self.compile_stmt_list(&[*body_node], params, locals, depth + 1)?;
+                Ok(Stmt::For { var, iter, body })
+            }
+            "while" => {
+                let items: Vec<_> = elements(node).collect();
+                let [cond_node, body_node] = items.as_slice() else {
+                    return Err("while требует условие и тело цикла".into());
+                };
+                let cond = self.compile(*cond_node, params, locals, depth + 1)?;
+                let body = self.compile_stmt_list(&[*body_node], params, locals, depth + 1)?;
+                Ok(Stmt::While { cond, body })
+            }
+            "return" => {
+                let expr_node = elements(node).next().ok_or("return требует выражение")?;
+                Ok(Stmt::Return(self.compile(
+                    expr_node,
+                    params,
+                    locals,
+                    depth + 1,
+                )?))
+            }
+            "break" => Ok(Stmt::Break),
+            "continue" => Ok(Stmt::Continue),
+            _ => Ok(Stmt::Expr(self.compile(node, params, locals, depth + 1)?)),
+        }
+    }
+
+    fn compile(
+        &mut self,
+        node: Xml<'_, '_>,
+        params: &[String],
+        locals: &mut Vec<String>,
+        depth: usize,
+    ) -> Calc<Expr> {
         if depth > 96 || node.tag_name().namespace() != Some(ML) {
             return Err("неподдерживаемое пространство имён или глубина формулы".into());
         }
@@ -235,6 +424,9 @@ impl Compiler<'_> {
             "real" | "imag" | "complex" => Ok(Expr::Literal(scalar(node)?)),
             "id" => {
                 let name = identifier(node)?;
+                if locals.contains(&name) {
+                    return Ok(Expr::Local(name));
+                }
                 if let Some(i) = params.iter().position(|p| p == &name) {
                     return Ok(Expr::Param(i));
                 }
@@ -250,19 +442,25 @@ impl Compiler<'_> {
             }
             "parens" | "eval" => {
                 let child = elements(node).next().ok_or("пустое выражение")?;
-                self.compile(child, params, depth + 1)
+                self.compile(child, params, locals, depth + 1)
+            }
+            "program" => {
+                let children: Vec<_> = elements(node).collect();
+                let mut inner_locals = locals.clone();
+                let stmts = self.compile_block(&children, params, &mut inner_locals, depth + 1)?;
+                Ok(Expr::Program(stmts))
             }
             "matrix" => {
                 let (rows, cols) = dimensions(node)?;
                 let values = elements(node)
-                    .map(|n| self.compile(n, params, depth + 1))
+                    .map(|n| self.compile(n, params, locals, depth + 1))
                     .collect::<Calc<_>>()?;
                 Ok(Expr::Matrix(rows, cols, values))
             }
             "range" => {
                 let items = expand_sequence(elements(node))
                     .into_iter()
-                    .map(|n| self.compile(n, params, depth + 1))
+                    .map(|n| self.compile(n, params, locals, depth + 1))
                     .collect::<Calc<_>>()?;
                 Ok(Expr::Range(items))
             }
@@ -278,10 +476,10 @@ impl Compiler<'_> {
                 }
                 if named(operator, ML, "indexer") {
                     let (array, indices) = args.split_first().ok_or("нет массива")?;
-                    let array = self.compile(*array, params, depth + 1)?;
+                    let array = self.compile(*array, params, locals, depth + 1)?;
                     let indices = indices
                         .iter()
-                        .map(|&n| self.compile(n, params, depth + 1))
+                        .map(|&n| self.compile(n, params, locals, depth + 1))
                         .collect::<Calc<_>>()?;
                     return Ok(Expr::Index(
                         Box::new(array),
@@ -297,7 +495,7 @@ impl Compiler<'_> {
                 };
                 let args = args
                     .into_iter()
-                    .map(|n| self.compile(n, params, depth + 1))
+                    .map(|n| self.compile(n, params, locals, depth + 1))
                     .collect::<Calc<Vec<_>>>()?;
                 if is_call {
                     if let Some(index) = self.reference(&name) {

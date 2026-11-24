@@ -6,13 +6,21 @@ const ZERO: [i16; 7] = [0; 7];
 const BASE: [&str; 7] = ["m", "kg", "s", "A", "K", "mol", "cd"];
 
 pub fn display_number(number: f64) -> String {
-    let scientific = format!("{number:.11e}");
+    display_number_precision(number, 12)
+}
+
+pub fn display_number_precision(number: f64, digits: usize) -> String {
+    let digits = digits.clamp(1, 15);
+    let frac = digits - 1;
+    let number = if number == 0. { 0. } else { number };
+    let scientific = format!("{number:.frac$e}");
     let (mantissa, exponent) = scientific
         .split_once('e')
         .expect("формат e содержит показатель степени");
     let exponent: i32 = exponent.parse().expect("показатель степени — целое число");
-    if (-4..12).contains(&exponent) {
-        let precision = (11 - exponent) as usize;
+    let exp_hi = (digits as i32).max(4);
+    if (-4..exp_hi).contains(&exponent) {
+        let precision = (frac as i32 - exponent).max(0) as usize;
         let decimal = format!("{number:.precision$}");
         if precision > 0 {
             return decimal.trim_end_matches('0').trim_end_matches('.').into();
@@ -81,33 +89,72 @@ impl Value {
         }
         let (number, dimensions) = match name {
             "m" => (1., [1, 0, 0, 0, 0, 0, 0]),
+            "nm" => (1e-9, [1, 0, 0, 0, 0, 0, 0]),
+            "um" | "µm" => (1e-6, [1, 0, 0, 0, 0, 0, 0]),
             "mm" => (0.001, [1, 0, 0, 0, 0, 0, 0]),
             "cm" => (0.01, [1, 0, 0, 0, 0, 0, 0]),
+            "dm" => (0.1, [1, 0, 0, 0, 0, 0, 0]),
             "km" => (1000., [1, 0, 0, 0, 0, 0, 0]),
-            "kg" => (1., [0, 1, 0, 0, 0, 0, 0]),
-            "g" => (0.001, [0, 1, 0, 0, 0, 0, 0]),
-            "lb" | "lbs" => (0.45359237, [0, 1, 0, 0, 0, 0, 0]),
             "in" => (0.0254, [1, 0, 0, 0, 0, 0, 0]),
             "ft" => (0.3048, [1, 0, 0, 0, 0, 0, 0]),
-            "s" => (1., [0, 0, 1, 0, 0, 0, 0]),
+            "yd" => (0.9144, [1, 0, 0, 0, 0, 0, 0]),
+            "mi" => (1609.344, [1, 0, 0, 0, 0, 0, 0]),
+            "mg" => (1e-6, [0, 1, 0, 0, 0, 0, 0]),
+            "g" => (0.001, [0, 1, 0, 0, 0, 0, 0]),
+            "kg" => (1., [0, 1, 0, 0, 0, 0, 0]),
+            "tonne" => (1000., [0, 1, 0, 0, 0, 0, 0]),
+            "lb" | "lbs" => (0.45359237, [0, 1, 0, 0, 0, 0, 0]),
+            "ns" => (1e-9, [0, 0, 1, 0, 0, 0, 0]),
+            "us" | "µs" => (1e-6, [0, 0, 1, 0, 0, 0, 0]),
             "ms" => (0.001, [0, 0, 1, 0, 0, 0, 0]),
+            "s" => (1., [0, 0, 1, 0, 0, 0, 0]),
             "min" => (60., [0, 0, 1, 0, 0, 0, 0]),
             "hr" => (3600., [0, 0, 1, 0, 0, 0, 0]),
+            "day" => (86400., [0, 0, 1, 0, 0, 0, 0]),
+            "mA" => (0.001, [0, 0, 0, 1, 0, 0, 0]),
             "A" => (1., [0, 0, 0, 1, 0, 0, 0]),
-            "K" => (1., [0, 0, 0, 0, 1, 0, 0]),
+            "kA" => (1000., [0, 0, 0, 1, 0, 0, 0]),
+            "K" | "degC" | "°C" => (1., [0, 0, 0, 0, 1, 0, 0]),
+            "degF" | "°F" => (5. / 9., [0, 0, 0, 0, 1, 0, 0]),
             "mol" => (1., [0, 0, 0, 0, 0, 1, 0]),
             "cd" => (1., [0, 0, 0, 0, 0, 0, 1]),
+            "mN" => (0.001, [1, 1, -2, 0, 0, 0, 0]),
             "N" => (1., [1, 1, -2, 0, 0, 0, 0]),
             "kN" => (1000., [1, 1, -2, 0, 0, 0, 0]),
+            "MN" => (1e6, [1, 1, -2, 0, 0, 0, 0]),
             "Pa" => (1., [-1, 1, -2, 0, 0, 0, 0]),
             "kPa" => (1000., [-1, 1, -2, 0, 0, 0, 0]),
             "MPa" => (1e6, [-1, 1, -2, 0, 0, 0, 0]),
+            "GPa" => (1e9, [-1, 1, -2, 0, 0, 0, 0]),
             "bar" => (1e5, [-1, 1, -2, 0, 0, 0, 0]),
+            "atm" => (101_325., [-1, 1, -2, 0, 0, 0, 0]),
+            "psi" => (6894.757293168, [-1, 1, -2, 0, 0, 0, 0]),
+            "mmHg" => (133.322387415, [-1, 1, -2, 0, 0, 0, 0]),
+            "mJ" => (0.001, [2, 1, -2, 0, 0, 0, 0]),
             "J" => (1., [2, 1, -2, 0, 0, 0, 0]),
+            "kJ" => (1000., [2, 1, -2, 0, 0, 0, 0]),
+            "MJ" => (1e6, [2, 1, -2, 0, 0, 0, 0]),
+            "Wh" => (3600., [2, 1, -2, 0, 0, 0, 0]),
+            "kWh" => (3.6e6, [2, 1, -2, 0, 0, 0, 0]),
+            "cal" => (4.184, [2, 1, -2, 0, 0, 0, 0]),
+            "kcal" => (4184., [2, 1, -2, 0, 0, 0, 0]),
+            "mW" => (0.001, [2, 1, -3, 0, 0, 0, 0]),
             "W" => (1., [2, 1, -3, 0, 0, 0, 0]),
+            "kW" => (1000., [2, 1, -3, 0, 0, 0, 0]),
+            "MW" => (1e6, [2, 1, -3, 0, 0, 0, 0]),
+            "hp" => (745.6998715822702, [2, 1, -3, 0, 0, 0, 0]),
             "Hz" => (1., [0, 0, -1, 0, 0, 0, 0]),
+            "kHz" => (1000., [0, 0, -1, 0, 0, 0, 0]),
+            "MHz" => (1e6, [0, 0, -1, 0, 0, 0, 0]),
+            "GHz" => (1e9, [0, 0, -1, 0, 0, 0, 0]),
+            "rpm" => (std::f64::consts::TAU / 60., [0, 0, -1, 0, 0, 0, 0]),
+            "mV" => (0.001, [2, 1, -3, -1, 0, 0, 0]),
             "V" => (1., [2, 1, -3, -1, 0, 0, 0]),
-            "Ω" => (1., [2, 1, -3, -2, 0, 0, 0]),
+            "kV" => (1000., [2, 1, -3, -1, 0, 0, 0]),
+            "Ω" | "ohm" => (1., [2, 1, -3, -2, 0, 0, 0]),
+            "kΩ" => (1000., [2, 1, -3, -2, 0, 0, 0]),
+            "MΩ" => (1e6, [2, 1, -3, -2, 0, 0, 0]),
+            "mL" => (1e-6, [3, 0, 0, 0, 0, 0, 0]),
             "L" => (0.001, [3, 0, 0, 0, 0, 0, 0]),
             "rad" => (1., ZERO),
             "deg" => (std::f64::consts::PI / 180., ZERO),
@@ -124,6 +171,10 @@ impl Value {
 
     pub fn multiply_number(self, number: f64) -> Calc<Self> {
         Self::from_complex(self.z() * number, self.dimensions)
+    }
+
+    pub fn with_number(self, number: f64) -> Calc<Self> {
+        Self::new(number, self.dimensions)
     }
 
     pub fn in_units(self, unit: Self) -> Calc<Self> {
@@ -293,32 +344,45 @@ impl Value {
     }
 }
 
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.imaginary == 0. {
-            write!(f, "{}", display_number(self.number))?;
+impl Value {
+    pub fn format_precision(&self, digits: usize) -> String {
+        let mut out = if self.imaginary == 0. {
+            display_number_precision(self.number, digits)
         } else if self.number == 0. {
-            write!(f, "{}i", display_number(self.imaginary))?;
+            format!("{}i", display_number_precision(self.imaginary, digits))
         } else {
             let sign = if self.imaginary.is_sign_negative() {
                 '-'
             } else {
                 '+'
             };
-            write!(
-                f,
+            format!(
                 "{} {sign} {}i",
-                display_number(self.number),
-                display_number(self.imaginary.abs())
-            )?;
-        }
+                display_number_precision(self.number, digits),
+                display_number_precision(self.imaginary.abs(), digits)
+            )
+        };
         for (unit, exponent) in BASE.into_iter().zip(self.dimensions) {
             match exponent {
                 0 => {}
-                1 => write!(f, " {unit}")?,
-                _ => write!(f, " {unit}^{exponent}")?,
+                1 => {
+                    out.push(' ');
+                    out.push_str(unit);
+                }
+                _ => {
+                    out.push(' ');
+                    out.push_str(unit);
+                    out.push('^');
+                    out.push_str(&exponent.to_string());
+                }
             }
         }
-        Ok(())
+        out
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.format_precision(12))
     }
 }

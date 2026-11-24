@@ -72,7 +72,7 @@ impl RegionVisual {
     pub fn set_formula(&mut self, statement: Xml<'_, '_>, editable: bool) {
         self.formula = notation(statement, 0).0;
         self.editor = FormulaSource::from_statement(statement, editable);
-        if !named(statement, ML, "define") {
+        if !named(statement, ML, "define") && !named(statement, ML, "globalDefine") {
             return;
         }
         let mut parts = elements(statement);
@@ -149,12 +149,16 @@ fn notation<'a, 'input>(node: Xml<'a, 'input>, depth: usize) -> (String, u8) {
         };
     }
     if tag == "program" {
-        return ("программный блок".into(), 9);
+        let stmts: Vec<_> = elements(node).take(16).collect();
+        return (format!("prog({})", combine(&stmts, "; ")), 9);
     }
     let items: Vec<_> = elements(node).take(34).collect();
     let printed = match (tag, items.as_slice()) {
         ("define", [left, right, ..]) => {
             (format!("{} := {}", descend(*left).0, descend(*right).0), 0)
+        }
+        ("globalDefine", [left, right, ..]) => {
+            (format!("{} ≡ {}", descend(*left).0, descend(*right).0), 0)
         }
         ("eval", [body, ..]) => descend(*body),
         ("symEval", [body, ..]) => (format!("{} →", descend(*body).0), 0),
@@ -171,6 +175,31 @@ fn notation<'a, 'input>(node: Xml<'a, 'input>, depth: usize) -> (String, u8) {
             9,
         ),
         ("complex", [re, im]) => (format!("{} + {}", descend(*re).0, descend(*im).0), 2),
+        ("localDefine", [l, r, ..]) => (format!("{} ← {}", descend(*l).0, descend(*r).0), 0),
+        ("if", [c, t]) => (format!("if({}, {})", descend(*c).0, descend(*t).0), 0),
+        ("if", [c, t, e]) => (
+            format!(
+                "if({}, {}, {})",
+                descend(*c).0,
+                descend(*t).0,
+                descend(*e).0
+            ),
+            0,
+        ),
+        ("otherwise", [b]) => descend(*b),
+        ("for", [v, it, b]) => (
+            format!(
+                "for({}, {}, {})",
+                descend(*v).0,
+                descend(*it).0,
+                descend(*b).0
+            ),
+            0,
+        ),
+        ("while", [c, b]) => (format!("while({}, {})", descend(*c).0, descend(*b).0), 0),
+        ("return", [v]) => (format!("return {}", descend(*v).0), 0),
+        ("break", _) => ("break".into(), 9),
+        ("continue", _) => ("continue".into(), 9),
         ("apply", [op, args @ ..]) => match (kind(*op), args) {
             ("indexer", [array, subs @ ..]) => {
                 (format!("{}[{}]", descend(*array).0, combine(subs, ", ")), 9)

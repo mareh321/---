@@ -1,11 +1,18 @@
+pub mod data_io;
 #[cfg(feature = "desktop")]
 pub mod editing;
+pub mod engineering;
 mod eval;
+#[cfg(feature = "desktop")]
+pub mod math_editor;
 mod parse;
 pub mod plot;
 #[cfg(feature = "desktop")]
 mod presentation;
+#[cfg(feature = "desktop")]
+pub mod report;
 pub mod sheet;
+pub mod symbolic;
 mod value;
 
 use std::io::{BufRead, BufReader, Read};
