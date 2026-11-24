@@ -1715,6 +1715,167 @@ impl TextStyle {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextFont {
+    Arial,
+    Times,
+    Courier,
+}
+
+impl TextFont {
+    pub const OPTIONS: [Self; 3] = [Self::Arial, Self::Times, Self::Courier];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Arial => "Arial",
+            Self::Times => "Times New Roman",
+            Self::Courier => "Courier New",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextAlignment {
+    Left,
+    Center,
+    Right,
+}
+
+impl TextAlignment {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextFormat {
+    pub font: TextFont,
+    pub size: u16,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub alignment: TextAlignment,
+}
+
+impl TextFormat {
+    fn for_heading(heading: u8) -> Self {
+        Self {
+            font: TextFont::Arial,
+            size: match heading {
+                1 => 18,
+                2 => 14,
+                _ => 10,
+            },
+            bold: heading != 0,
+            italic: false,
+            underline: false,
+            alignment: TextAlignment::Left,
+        }
+    }
+}
+
+const FORMAT_STYLE_SEPARATOR: &str = " (List ";
+
+pub(crate) fn text_heading(style: &str) -> u8 {
+    let base = style.split(FORMAT_STYLE_SEPARATOR).next().unwrap_or(style);
+    let base = base.to_lowercase();
+    if base == "heading 1" || base.contains("title") || base == "заголовок 1" {
+        1
+    } else if base.starts_with("heading") || base.starts_with("заголовок") {
+        2
+    } else {
+        0
+    }
+}
+
+fn text_styles<'a, 'input>(root: Xml<'a, 'input>) -> Option<Xml<'a, 'input>> {
+    ["settings", "presentation", "textRendering", "textStyles"]
+        .into_iter()
+        .try_fold(root, |parent, tag| {
+            elements(parent).find(|&node| named(node, WS, tag))
+        })
+}
+
+pub(crate) fn region_text_format(text: Xml<'_, '_>) -> Option<TextFormat> {
+    let styles = text_styles(text.document().root_element())?;
+    let mut paragraphs = elements(text);
+    let first = paragraphs.next()?;
+    let style = first.attribute("style").unwrap_or("Normal");
+    let read = |p| {
+        if !named(p, WS, "p")
+            || elements(p).next().is_some()
+            || p.attribute("style").unwrap_or("Normal") != style
+        {
+            return None;
+        }
+        let mut format = TextFormat::for_heading(text_heading(style));
+        let definition = elements(styles)
+            .find(|&node| named(node, WS, "textStyle") && node.attribute("name") == Some(style));
+        if definition.is_some_and(|node| node.attribute("base-style").is_some()) {
+            return None;
+        }
+        let inline =
+            definition.and_then(|def| elements(def).find(|&node| named(node, WS, "inlineAttr")));
+        if let Some(inline) = inline {
+            if inline.attribute("line-through") == Some("true")
+                || !matches!(
+                    inline.attribute("vertical-align"),
+                    None | Some("baseline" | "inherit")
+                )
+            {
+                return None;
+            }
+            if let Some(name) = inline
+                .attribute("font-family")
+                .filter(|name| *name != "inherit")
+            {
+                format.font = TextFont::OPTIONS
+                    .into_iter()
+                    .find(|font| font.name().eq_ignore_ascii_case(name))?;
+            }
+            if let Some(size) = inline
+                .attribute("font-size")
+                .filter(|size| *size != "inherit")
+            {
+                format.size = size
+                    .parse::<u16>()
+                    .ok()
+                    .filter(|size| (6..=72).contains(size))?;
+            }
+            if let Some(weight) = inline
+                .attribute("font-weight")
+                .filter(|weight| *weight != "inherit")
+            {
+                format.bold = weight == "bold";
+            }
+            format.italic = inline.attribute("font-style") == Some("italic");
+            format.underline = inline.attribute("underline") == Some("true");
+        }
+        let inherited_alignment = definition
+            .and_then(|def| elements(def).find(|&node| named(node, WS, "blockAttr")))
+            .and_then(|block| block.attribute("text-align"));
+        format.alignment = match p
+            .attribute("text-align")
+            .filter(|align| *align != "inherit")
+            .or(inherited_alignment)
+        {
+            None | Some("left" | "inherit") => TextAlignment::Left,
+            Some("center") => TextAlignment::Center,
+            Some("right") => TextAlignment::Right,
+            _ => return None,
+        };
+        Some(format)
+    };
+    let initial = read(first)?;
+    paragraphs
+        .all(|p| read(p) == Some(initial))
+        .then_some(initial)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PageSettings {
     pub header: String,
@@ -2140,6 +2301,7 @@ pub struct ClipboardRegion {
     pub chart: Option<(ChartSpec, ChartOptions)>,
     pub plot3d: Option<Plot3dSpec>,
     pub image: Option<ImageSpec>,
+    text_style: Option<(String, String)>,
 }
 
 pub fn copy_regions(xml: &str, ids: &[String]) -> Calc<Vec<ClipboardRegion>> {
@@ -2155,6 +2317,7 @@ pub fn copy_regions(xml: &str, ids: &[String]) -> Calc<Vec<ClipboardRegion>> {
     let options_map = chart_options(xml)?;
     let plot3d_map = plots3d(xml)?;
     let image_map = images(xml)?;
+    let styles = text_styles(doc.root_element());
     let mut raw = Vec::new();
     for node in elements(container).filter(|&n| named(n, WS, "region")) {
         let Some(id) = node.attribute("region-id") else {
@@ -2165,6 +2328,18 @@ pub fn copy_regions(xml: &str, ids: &[String]) -> Calc<Vec<ClipboardRegion>> {
         }
         let left = parse_coord(node, "left").unwrap_or(0.);
         let top = parse_coord(node, "top").unwrap_or(0.);
+        let text_style = styles.and_then(|styles| {
+            let text = elements(node).find(|&part| named(part, WS, "text"))?;
+            region_text_format(text)?;
+            let name = elements(text).next()?.attribute("style")?;
+            if !name.contains(FORMAT_STYLE_SEPARATOR) {
+                return None;
+            }
+            let definition = elements(styles).find(|&part| {
+                named(part, WS, "textStyle") && part.attribute("name") == Some(name)
+            })?;
+            Some((name.to_owned(), xml[definition.range()].to_owned()))
+        });
         raw.push(ClipboardRegion {
             xml: xml[node.range()].to_owned(),
             rel_left: left,
@@ -2179,6 +2354,7 @@ pub fn copy_regions(xml: &str, ids: &[String]) -> Calc<Vec<ClipboardRegion>> {
                 .map(|s| (s, options_map.get(id).cloned().unwrap_or_default())),
             plot3d: plot3d_map.get(id).cloned(),
             image: image_map.get(id).cloned(),
+            text_style,
         });
     }
     if raw.is_empty() {
@@ -2248,6 +2424,21 @@ pub fn paste_regions(
         new_ids.push(id);
     }
     let mut edits = Vec::new();
+    if items.iter().any(|item| item.text_style.is_some()) {
+        let styles = text_styles(root).ok_or("на целевом листе нет таблицы текстовых стилей")?;
+        let mut names: std::collections::HashSet<_> = elements(styles)
+            .filter_map(|style| style.attribute("name"))
+            .collect();
+        let definitions: Vec<_> = items
+            .iter()
+            .filter_map(|item| item.text_style.as_ref())
+            .filter(|(name, _)| names.insert(name.as_str()))
+            .map(|(_, markup)| markup.as_str())
+            .collect();
+        if !definitions.is_empty() {
+            edits.push(append_child(xml, styles, &definitions.join("\n")));
+        }
+    }
     if !chart_chunks.is_empty() {
         let joined_charts = chart_chunks.join("\n  ");
         if let Some(node) = elements(root).find(|&n| named(n, WS, "pointReleaseData")) {
@@ -2402,21 +2593,49 @@ pub fn replace_text_region(
     let text_node = elements(region)
         .find(|&n| named(n, WS, "text"))
         .ok_or("выбранный регион не является текстовым")?;
-    let style_name = style.xmcd_name();
+    let previous = elements(text_node)
+        .next()
+        .and_then(|p| p.attribute("style"));
+    let retained_format = previous
+        .filter(|name| TextStyle::from_heading_level(text_heading(name)) == style)
+        .and_then(|name| region_text_format(text_node).map(|format| (name, format)));
+    let (style_name, paragraph_attrs) = match retained_format {
+        Some((name, format)) => (name, format!(" text-align=\"{}\"", format.alignment.name())),
+        None => (style.xmcd_name(), String::new()),
+    };
     let paragraphs = text
         .lines()
-        .map(|line| format!("<p style=\"{style_name}\">{}</p>", escape(line)))
+        .map(|line| {
+            format!(
+                "<p style=\"{}\"{paragraph_attrs}>{}</p>",
+                escape(style_name),
+                escape(line)
+            )
+        })
         .collect::<String>();
     let line_h = match style {
         TextStyle::Heading1 => 30,
         TextStyle::Heading2 => 24,
         TextStyle::Normal => 19,
     };
-    let new_height = (30 + line_h * (text.lines().count().saturating_sub(1))).min(420);
+    let new_height = if let Some((_, format)) = retained_format {
+        formatted_text_height(text.lines(), region.attribute("width"), format.size)
+    } else {
+        (30 + line_h * (text.lines().count().saturating_sub(1))).min(420)
+    };
     let region_range = region.range();
     let region_xml = &xml[region_range.clone()];
     let open_end = find_open_tag_end(region_xml).ok_or("некорректный тег region")?;
     let updated_open = set_xml_attr(&region_xml[..open_end], "height", &new_height.to_string());
+    let mut text_range = text_node.range();
+    let mut new_text = format!("<text>{paragraphs}</text>");
+    if let Some((start, end)) = find_open_tag_end(&xml[text_range.clone()])
+        .zip(xml[text_range.clone()].rfind("</"))
+        .filter(|(start, end)| start <= end)
+    {
+        text_range = text_range.start + start..text_range.start + end;
+        new_text = paragraphs;
+    }
     patch(
         xml,
         vec![
@@ -2424,9 +2643,125 @@ pub fn replace_text_region(
                 region_range.start..region_range.start + open_end,
                 updated_open,
             ),
-            (text_node.range(), format!("<text>{paragraphs}</text>")),
+            (text_range, new_text),
         ],
     )
+}
+
+fn formatted_text_height<'a>(
+    lines: impl Iterator<Item = &'a str>,
+    width: Option<&str>,
+    size: u16,
+) -> usize {
+    let width = width
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite() && *value > 0.)
+        .unwrap_or(220.);
+    let chars = (width / (f32::from(size) * 0.72)).max(1.) as usize;
+    let lines: usize = lines
+        .map(|line| line.chars().count().max(1).div_ceil(chars))
+        .sum();
+    (8 + lines * (usize::from(size) * 3 / 2 + 2)).clamp(24, 100_000)
+}
+
+pub fn format_text_region(xml: &str, region_id: &str, format: TextFormat) -> Calc<String> {
+    if !(6..=72).contains(&format.size) {
+        return Err("размер шрифта должен быть от 6 до 72 пунктов".into());
+    }
+    let doc = document(xml)?;
+    let root = doc.root_element();
+    let container = elements(root)
+        .find(|&node| named(node, WS, "regions"))
+        .ok_or("лист без блока regions")?;
+    let region = elements(container)
+        .find(|&node| named(node, WS, "region") && node.attribute("region-id") == Some(region_id))
+        .ok_or("не найден текстовый регион")?;
+    let text = elements(region)
+        .find(|&node| named(node, WS, "text"))
+        .ok_or("выбранный регион не является текстовым")?;
+    let previous = region_text_format(text)
+        .ok_or("панель формата доступна для однородного текста без вложенной разметки")?;
+    if previous == format {
+        return Ok(xml.to_owned());
+    }
+    let styles = text_styles(root).ok_or("на листе нет таблицы текстовых стилей")?;
+    let current_style = elements(text)
+        .next()
+        .and_then(|p| p.attribute("style"))
+        .unwrap_or("Normal");
+    let base = current_style
+        .split(FORMAT_STYLE_SEPARATOR)
+        .next()
+        .unwrap_or(current_style);
+    let weight = if format.bold { "bold" } else { "normal" };
+    let slant = if format.italic { "italic" } else { "normal" };
+    let font = format.font.name();
+    let size = format.size.to_string();
+    let underline = if format.underline { "true" } else { "false" };
+    let style_name =
+        format!("{base}{FORMAT_STYLE_SEPARATOR}{font} {size} {weight} {slant} {underline})");
+    let change_font = TextFormat {
+        alignment: previous.alignment,
+        ..format
+    } != previous;
+    let mut changes = Vec::new();
+    if change_font
+        && !elements(styles).any(|style| {
+            named(style, WS, "textStyle") && style.attribute("name") == Some(&style_name)
+        })
+    {
+        let block = elements(styles)
+            .find(|&style| {
+                named(style, WS, "textStyle") && style.attribute("name") == Some(current_style)
+            })
+            .and_then(|style| elements(style).find(|&part| named(part, WS, "blockAttr")));
+        let mut block_markup = String::from("<blockAttr");
+        if let Some(block) = block {
+            for attr in block.attributes().filter(|attr| attr.namespace().is_none()) {
+                block_markup.push_str(&format!(" {}=\"{}\"", attr.name(), escape(attr.value())));
+            }
+        }
+        block_markup.push_str("/>");
+        let definition = format!(
+            "<textStyle xmlns=\"{WS}\" name=\"{}\">{block_markup}<inlineAttr font-family=\"{font}\" font-charset=\"0\" font-size=\"{size}\" font-weight=\"{weight}\" font-style=\"{slant}\" underline=\"{underline}\" line-through=\"false\" vertical-align=\"baseline\"/></textStyle>",
+            escape(&style_name),
+        );
+        changes.push(append_child(xml, styles, &definition));
+    }
+    for paragraph in elements(text) {
+        let range = paragraph.range();
+        let end = range.start
+            + find_open_tag_end(&xml[range.clone()]).ok_or("не найдено начало абзаца")?;
+        let opening = &xml[range.start..end];
+        let opening = if change_font {
+            set_xml_attr(opening, "style", &style_name)
+        } else {
+            opening.to_owned()
+        };
+        let opening = set_xml_attr(&opening, "text-align", format.alignment.name());
+        changes.push((range.start..end, opening));
+    }
+    if format.size > previous.size {
+        let current = region
+            .attribute("height")
+            .and_then(|height| height.parse::<f32>().ok())
+            .unwrap_or(0.);
+        let wanted = formatted_text_height(
+            elements(text).map(|p| p.text().unwrap_or_default()),
+            region.attribute("width"),
+            format.size,
+        );
+        if wanted as f32 > current {
+            let range = region.range();
+            let end = range.start
+                + find_open_tag_end(&xml[range.clone()]).ok_or("не найдено начало региона")?;
+            changes.push((
+                range.start..end,
+                set_xml_attr(&xml[range.start..end], "height", &wanted.to_string()),
+            ));
+        }
+    }
+    patch(xml, changes)
 }
 
 pub fn read_page_settings(xml: &str) -> Calc<PageSettings> {
@@ -2613,6 +2948,23 @@ mod tests {
         let mut sheet2 = crate::sheet::Sheet::import(&cleared).unwrap();
         sheet2.full();
         assert_eq!(sheet2.display_unit_label(0), None);
+    }
+
+    #[test]
+    fn whole_region_format_rejects_text_with_inline_markup() {
+        let (xml, id) = insert_region(
+            crate::BLANK,
+            18.,
+            24.,
+            NewRegion::StyledText("Исходный текст", TextStyle::Normal),
+        )
+        .unwrap();
+        let xml = xml.replace("Исходный текст", "<b>Исходный</b> текст");
+        let format = TextFormat {
+            size: 20,
+            ..TextFormat::for_heading(0)
+        };
+        assert!(format_text_region(&xml, &id, format).is_err());
     }
 
     #[test]

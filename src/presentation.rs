@@ -1,4 +1,4 @@
-use crate::editing::FormulaSource;
+use crate::editing::{region_text_format, text_heading, FormulaSource, TextFormat};
 use crate::parse::{elements, eval_operand, kind, named, Xml, ML};
 
 #[derive(Default)]
@@ -8,6 +8,7 @@ pub struct RegionVisual {
     pub width: f32,
     pub height: f32,
     pub heading: u8,
+    pub text_format: Option<TextFormat>,
     pub formula: String,
     pub input_unit: Option<String>,
     pub graphical: bool,
@@ -38,16 +39,9 @@ impl RegionVisual {
         let style = paragraphs
             .first()
             .and_then(|node| node.attribute("style"))
-            .unwrap_or_default()
-            .to_lowercase();
-        self.heading = if style == "heading 1" || style.contains("title") || style == "заголовок 1"
-        {
-            1
-        } else if style.starts_with("heading") || style.starts_with("заголовок") {
-            2
-        } else {
-            0
-        };
+            .unwrap_or_default();
+        self.heading = text_heading(style);
+        self.text_format = region_text_format(text);
         let line = |paragraph: Xml<'_, '_>| {
             paragraph
                 .descendants()

@@ -12,6 +12,7 @@ use eframe::egui::{
 };
 use list_rs::{
     data_io, display_number, editing,
+    editing::{TextAlignment, TextFont, TextFormat},
     math_editor::{parse_source_to_slot, MathEditor},
     number, read_xml, report,
     sheet::Sheet,
@@ -72,6 +73,33 @@ fn install_fonts(ctx: &egui::Context) {
             }
         }
     }
+    let windows_fonts = std::env::var_os("WINDIR").map(|path| PathBuf::from(path).join("Fonts"));
+    for (font, prefix) in [
+        (TextFont::Arial, "arial"),
+        (TextFont::Times, "times"),
+        (TextFont::Courier, "cour"),
+    ] {
+        for (bold, italic, suffix) in [
+            (false, false, ""),
+            (true, false, "bd"),
+            (false, true, "i"),
+            (true, true, "bi"),
+        ] {
+            let family = text_font_family(font, bold, italic);
+            let mut order = fonts.families[&FontFamily::Proportional].clone();
+            if let Some(data) = windows_fonts
+                .as_ref()
+                .and_then(|path| std::fs::read(path.join(format!("{prefix}{suffix}.ttf"))).ok())
+            {
+                let name = format!("{prefix}{suffix}");
+                fonts
+                    .font_data
+                    .insert(name.clone(), Arc::new(FontData::from_owned(data)));
+                order.insert(0, name);
+            }
+            fonts.families.insert(family, order);
+        }
+    }
     ctx.set_fonts(fonts);
     let mut theme = egui::Visuals::dark();
     theme.override_text_color = Some(tool_ribbon::TEXT_WHITE);
@@ -108,6 +136,10 @@ fn install_fonts(ctx: &egui::Context) {
     theme.widgets.open.fg_stroke = Stroke::new(1.0_f32, tool_ribbon::TEXT_WHITE);
     ctx.set_visuals_of(egui::Theme::Dark, theme);
     ctx.set_theme(egui::Theme::Dark);
+}
+
+fn text_font_family(font: TextFont, bold: bool, italic: bool) -> FontFamily {
+    FontFamily::Name(Arc::from(format!("{}-{bold}-{italic}", font.name())))
 }
 
 fn paper_edit_visuals(ui: &mut egui::Ui) {
@@ -3267,6 +3299,21 @@ impl Workbench {
         ))
     }
 
+    fn apply_text_format(&mut self, index: usize, format: TextFormat) -> Calc<()> {
+        let region = &self.document.sheet.regions[index];
+        if region.visual.text_format == Some(format) {
+            return Ok(());
+        }
+        let xml = editing::format_text_region(&self.document.xml, &region.source_id, format)?;
+        let candidate = self.document.rebuild(&xml, None)?;
+        self.record_undo(self.document.snapshot());
+        self.document = candidate;
+        self.sync_selection_from_ids();
+        self.error = None;
+        self.status = "Формат текста обновлён".into();
+        Ok(())
+    }
+
     fn precision_options(&mut self, ui: &mut egui::Ui) {
         for value in RESULT_PRECISIONS {
             let label = value.map_or_else(
@@ -3425,6 +3472,7 @@ impl Workbench {
                     .inner_margin(Margin::symmetric(10, 3)),
             )
             .show(ctx, |ui| {
+                let show_view_toggles = ui.available_width() >= 780.;
                 ui.horizontal(|ui| {
                     let text = self.selected_text();
                     let label = match text.map(|(_, style)| style) {
@@ -3444,6 +3492,111 @@ impl Workbench {
                         }
                     }
                     ui.separator();
+                    let target = text.and_then(|(index, _)| {
+                        self.document.sheet.regions[index]
+                            .visual
+                            .text_format
+                            .map(|format| (index, format))
+                    });
+                    let mut format = target.map(|(_, format)| format);
+                    ui.add_enabled_ui(format.is_some(), |ui| {
+                        let font_label = format.map_or("Шрифт", |value| value.font.name());
+                        egui::ComboBox::from_id_salt("region_text_font")
+                            .width(128.)
+                            .selected_text(font_label)
+                            .show_ui(ui, |ui| {
+                                if let Some(format) = &mut format {
+                                    for font in TextFont::OPTIONS {
+                                        ui.selectable_value(&mut format.font, font, font.name());
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text("Шрифт выбранного текста");
+                        egui::ComboBox::from_id_salt("region_text_size")
+                            .width(48.)
+                            .selected_text(
+                                format.map_or_else(
+                                    || "пт".to_owned(),
+                                    |value| value.size.to_string(),
+                                ),
+                            )
+                            .show_ui(ui, |ui| {
+                                if let Some(format) = &mut format {
+                                    for size in
+                                        [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72]
+                                    {
+                                        ui.selectable_value(
+                                            &mut format.size,
+                                            size,
+                                            format!("{size} пт"),
+                                        );
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text("Размер шрифта");
+                        for (index, label, tip) in [
+                            (0, RichText::new("B").strong(), "Полужирный"),
+                            (1, RichText::new("I").italics(), "Курсив"),
+                            (2, RichText::new("U").underline(), "Подчёркивание"),
+                        ] {
+                            let selected = format.is_some_and(|value| {
+                                [value.bold, value.italic, value.underline][index]
+                            });
+                            if ui
+                                .selectable_label(selected, label)
+                                .on_hover_text(tip)
+                                .clicked()
+                            {
+                                if let Some(value) = &mut format {
+                                    let field = match index {
+                                        0 => &mut value.bold,
+                                        1 => &mut value.italic,
+                                        _ => &mut value.underline,
+                                    };
+                                    *field = !*field;
+                                }
+                            }
+                        }
+                        ui.separator();
+                        for (alignment, label, tip) in [
+                            (
+                                TextAlignment::Left,
+                                "Влево",
+                                "Выровнять текст по левому краю",
+                            ),
+                            (TextAlignment::Center, "Центр", "Выровнять текст по центру"),
+                            (
+                                TextAlignment::Right,
+                                "Вправо",
+                                "Выровнять текст по правому краю",
+                            ),
+                        ] {
+                            if ui
+                                .selectable_label(
+                                    format.is_some_and(|value| value.alignment == alignment),
+                                    label,
+                                )
+                                .on_hover_text(tip)
+                                .clicked()
+                            {
+                                if let Some(value) = &mut format {
+                                    value.alignment = alignment;
+                                }
+                            }
+                        }
+                    })
+                    .response
+                    .on_disabled_hover_text("Выберите текстовый регион с однородным оформлением");
+                    if let (Some((index, previous)), Some(format)) = (target, format) {
+                        if format != previous {
+                            if let Err(error) = self.apply_text_format(index, format) {
+                                self.error = Some(error);
+                            }
+                        }
+                    }
+                    ui.separator();
                     ui.label("Точность");
                     egui::ComboBox::from_id_salt("result_precision")
                         .width(80.)
@@ -3456,11 +3609,13 @@ impl Workbench {
                         .show_ui(ui, |ui| self.precision_options(ui))
                         .response
                         .on_hover_text("Число значащих цифр в результатах");
-                    ui.separator();
-                    ui.toggle_value(&mut self.show_grid, "Сетка")
-                        .on_hover_text("Показать сетку листа");
-                    ui.toggle_value(&mut self.show_regions, "Регионы")
-                        .on_hover_text("Показать границы регионов");
+                    if show_view_toggles {
+                        ui.separator();
+                        ui.toggle_value(&mut self.show_grid, "Сетка")
+                            .on_hover_text("Показать сетку листа");
+                        ui.toggle_value(&mut self.show_regions, "Регионы")
+                            .on_hover_text("Показать границы регионов");
+                    }
                 });
             });
     }
@@ -4371,23 +4526,62 @@ impl Workbench {
                         next = Some((index, ctrl_held));
                     }
                 } else {
-                    let font = FontId::proportional(size * zoom);
-                    let galley =
-                        ui.painter()
-                            .layout(text.clone(), font, color, rect.width().max(60.));
+                    let mut anchor = rect.min;
+                    let galley = if let Some(format) = region.visual.text_format {
+                        let mut job = egui::text::LayoutJob::default();
+                        job.wrap.max_width = rect.width().max(1.);
+                        job.halign = match format.alignment {
+                            TextAlignment::Left => Align::Min,
+                            TextAlignment::Center => {
+                                anchor.x = rect.center().x;
+                                Align::Center
+                            }
+                            TextAlignment::Right => {
+                                anchor.x = rect.right();
+                                Align::Max
+                            }
+                        };
+                        job.append(
+                            text,
+                            0.,
+                            egui::TextFormat {
+                                font_id: FontId::new(
+                                    f32::from(format.size) * zoom,
+                                    text_font_family(format.font, format.bold, format.italic),
+                                ),
+                                color,
+                                underline: if format.underline {
+                                    Stroke::new(zoom, color)
+                                } else {
+                                    Stroke::NONE
+                                },
+                                ..Default::default()
+                            },
+                        );
+                        ui.painter().layout_job(job)
+                    } else {
+                        ui.painter().layout(
+                            text.clone(),
+                            FontId::proportional(size * zoom),
+                            color,
+                            rect.width().max(60.),
+                        )
+                    };
+                    let text_height = if region.visual.text_format.is_some() {
+                        galley.rect.height()
+                    } else {
+                        galley.rect.height().min(40. * zoom)
+                    };
                     let area = Rect::from_min_size(
                         rect.min,
-                        vec2(
-                            rect.width(),
-                            rect.height().max(galley.rect.height().min(40. * zoom)),
-                        ),
+                        vec2(rect.width(), rect.height().max(text_height)),
                     );
                     if selected {
                         ui.painter().rect_filled(area, 4., PALE);
                     }
                     ui.painter()
                         .with_clip_rect(area)
-                        .galley(rect.min, galley, color);
+                        .galley(anchor, galley, color);
                     let response = ui.interact(
                         area,
                         egui::Id::new((self.generation, index)),
@@ -5916,6 +6110,79 @@ mod tests {
 
         let reopened = Worksheet::load(&doc.export().unwrap(), "Копия".into(), None).unwrap();
         assert_eq!(reopened.sheet.display(0).unwrap(), "19.62");
+    }
+
+    #[test]
+    fn text_toolbar_format_survives_editing_export_and_undo() {
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        let text = app
+            .document
+            .insert(
+                Pos2::new(18., 24.),
+                editing::NewRegion::StyledText(
+                    "Расчёт & проверка\nИтог",
+                    editing::TextStyle::Heading1,
+                ),
+            )
+            .unwrap();
+        let input = app
+            .document
+            .insert(Pos2::new(18., 200.), editing::NewRegion::Formula("x := 2"))
+            .unwrap();
+        app.document.update_input(input, Some(4.)).unwrap();
+        app.select(text);
+        let initial = app.document.sheet.regions[text].visual.text_format.unwrap();
+        let format = TextFormat {
+            font: TextFont::Times,
+            size: 24,
+            bold: false,
+            italic: true,
+            underline: true,
+            alignment: TextAlignment::Center,
+        };
+        app.apply_text_format(text, format).unwrap();
+        assert_eq!(
+            app.document.sheet.regions[text].visual.text_format,
+            Some(format)
+        );
+        assert_eq!(app.document.sheet.input_value(input), Some(4.));
+        app.undo();
+        assert_eq!(
+            app.document.sheet.regions[text].visual.text_format,
+            Some(initial)
+        );
+        app.redo();
+        assert_eq!(
+            app.document.sheet.regions[text].visual.text_format,
+            Some(format)
+        );
+        app.document
+            .replace_text(
+                text,
+                "Новый заголовок\nПараметры",
+                editing::TextStyle::Heading1,
+            )
+            .unwrap();
+        let copy = app.document.export().unwrap();
+        let reopened = Worksheet::load(&copy, "Копия".into(), None).unwrap();
+        assert_eq!(
+            reopened.sheet.regions[text].visual.text_format,
+            Some(format)
+        );
+        assert_eq!(reopened.sheet.regions[text].visual.heading, 1);
+        assert_eq!(
+            reopened.sheet.regions[text].text.as_deref(),
+            Some("Новый заголовок\nПараметры")
+        );
+        assert_eq!(reopened.sheet.input_value(input), Some(4.));
+        let html = reopened.build_html_report();
+        assert!(html.contains("font-family:'Times New Roman';font-size:24pt;font-weight:normal;font-style:italic;text-decoration:underline;text-align:center"));
+        let id = reopened.sheet.regions[text].source_id.clone();
+        let copied = editing::copy_regions(&copy, &[id]).unwrap();
+        let (pasted, _) = editing::paste_regions(list_rs::BLANK, &copied, 18., 24.).unwrap();
+        let pasted = Worksheet::load(&pasted, "Вставка".into(), None).unwrap();
+        assert_eq!(pasted.sheet.regions[0].visual.text_format, Some(format));
     }
 
     #[test]
