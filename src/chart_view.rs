@@ -2,7 +2,7 @@ use eframe::egui::{
     self, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, StrokeKind,
 };
 use list_rs::{
-    editing::{ChartOptions, ChartSpec},
+    editing::{AxisNumber, ChartAppearance, ChartLine, ChartOptions, ChartSpec},
     number, Calc,
 };
 
@@ -36,6 +36,17 @@ pub enum DraftMode {
     Polar,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChartTab {
+    Axes,
+    Traces,
+    Numbers,
+    Labels,
+    Defaults,
+    #[default]
+    Data,
+}
+
 pub struct Draft {
     mode: DraftMode,
     expression: String,
@@ -56,6 +67,10 @@ pub struct Draft {
     y_max: String,
     x_label: String,
     y_label: String,
+    appearance: ChartAppearance,
+    pub tab: ChartTab,
+    pub save_defaults: bool,
+    show_help: bool,
 }
 
 impl Default for Draft {
@@ -80,6 +95,10 @@ impl Default for Draft {
             y_max: String::new(),
             x_label: String::new(),
             y_label: String::new(),
+            appearance: Default::default(),
+            tab: ChartTab::Data,
+            save_defaults: false,
+            show_help: false,
         }
     }
 }
@@ -156,21 +175,179 @@ impl Draft {
                 draft.to = to.to_string();
             }
         }
-        draft.log_x = options.log_x;
-        draft.log_y = options.log_y;
-        draft.equal_scale = options.equal_scale;
-        draft.markers = options.markers;
-        draft.show_legend = options.show_legend;
-        draft.x_min = options.x_min.map(|v| v.to_string()).unwrap_or_default();
-        draft.x_max = options.x_max.map(|v| v.to_string()).unwrap_or_default();
-        draft.y_min = options.y_min.map(|v| v.to_string()).unwrap_or_default();
-        draft.y_max = options.y_max.map(|v| v.to_string()).unwrap_or_default();
-        draft.x_label = options.x_label.clone();
-        draft.y_label = options.y_label.clone();
+        draft.set_format(options);
+        draft.tab = ChartTab::Axes;
         draft
     }
 
-    pub fn fields(&mut self, ui: &mut egui::Ui) {
+    pub fn set_format(&mut self, options: &ChartOptions) {
+        self.appearance = options.appearance.clone();
+        self.log_x = options.log_x;
+        self.log_y = options.log_y;
+        self.equal_scale = options.equal_scale;
+        self.markers = options.markers;
+        self.show_legend = options.show_legend;
+        self.x_min = options.x_min.map(|v| v.to_string()).unwrap_or_default();
+        self.x_max = options.x_max.map(|v| v.to_string()).unwrap_or_default();
+        self.y_min = options.y_min.map(|v| v.to_string()).unwrap_or_default();
+        self.y_max = options.y_max.map(|v| v.to_string()).unwrap_or_default();
+        self.x_label = options.x_label.clone();
+        self.y_label = options.y_label.clone();
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
+    }
+
+    pub fn fields(&mut self, ui: &mut egui::Ui, defaults: Option<&ChartOptions>, editing: bool) {
+        ui.horizontal_wrapped(|ui| {
+            for (tab, name) in [
+                (ChartTab::Axes, "Оси X, Y"),
+                (ChartTab::Traces, "Трассировка"),
+                (ChartTab::Numbers, "Формат числа"),
+                (ChartTab::Labels, "Подписи"),
+                (ChartTab::Defaults, "По умолчанию"),
+                (ChartTab::Data, "Данные"),
+            ] {
+                ui.selectable_value(&mut self.tab, tab, name);
+            }
+        });
+        ui.separator();
+        if self.show_help {
+            ui.label(match self.tab {
+                ChartTab::Axes => {
+                    "Оставьте границу пустой, чтобы определить её автоматически по данным."
+                }
+                ChartTab::Traces => {
+                    "Параметры строк относятся к кривым в порядке ввода на вкладке «Данные»."
+                }
+                ChartTab::Numbers => {
+                    "Формат меняет подписи делений. Дроби подбираются со знаменателем до 100."
+                }
+                ChartTab::Labels => "Оставьте подпись пустой, чтобы скрыть её.",
+                ChartTab::Defaults => {
+                    "Умолчания хранятся в листе и применяются при вставке новых графиков."
+                }
+                ChartTab::Data => {
+                    "Выберите способ построения и введите выражения или имена массивов."
+                }
+            });
+        }
+        match self.tab {
+            ChartTab::Axes => {
+                for (i, (name, log, min, max)) in [
+                    ("X", &mut self.log_x, &mut self.x_min, &mut self.x_max),
+                    ("Y", &mut self.log_y, &mut self.y_min, &mut self.y_max),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    ui.group(|ui| {
+                        ui.strong(format!("Ось {name}"));
+                        ui.horizontal_wrapped(|ui| {
+                            if self.mode != DraftMode::Polar {
+                                ui.checkbox(log, "Логарифмическая");
+                            }
+                            ui.checkbox(&mut self.appearance.grid[i], "Линии сетки");
+                            ui.checkbox(&mut self.appearance.numbers[i], "Нумерация");
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            field(ui, "Мин", min, 76.);
+                            field(ui, "Макс", max, 76.);
+                            ui.label("Делений");
+                            ui.add(
+                                egui::DragValue::new(&mut self.appearance.divisions[i])
+                                    .range(1..=20),
+                            );
+                        });
+                    });
+                }
+                ui.checkbox(&mut self.equal_scale, "Одинаковый масштаб");
+            }
+            ChartTab::Traces => {
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.show_legend, "Показывать легенду");
+                    ui.checkbox(&mut self.markers, "Маркеры точек");
+                });
+                egui::Grid::new("chart_trace_styles")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for heading in ["Кривая", "Подпись в легенде", "Линия", "Цвет"]
+                        {
+                            ui.strong(heading);
+                        }
+                        ui.end_row();
+                        for (i, trace) in self.appearance.traces.iter_mut().enumerate() {
+                            ui.label((i + 1).to_string());
+                            ui.add(
+                                egui::TextEdit::singleline(&mut trace.label)
+                                    .desired_width(118.)
+                                    .char_limit(120),
+                            );
+                            let name = ChartLine::ALL
+                                .iter()
+                                .find(|(style, _)| *style == trace.line)
+                                .map_or("", |(_, name)| *name);
+                            egui::ComboBox::from_id_salt(("trace_line", i))
+                                .selected_text(name)
+                                .show_ui(ui, |ui| {
+                                    for (style, name) in ChartLine::ALL {
+                                        ui.selectable_value(&mut trace.line, style, name);
+                                    }
+                                });
+                            ui.horizontal(|ui| {
+                                let [r, g, b, _] = COLORS[i].to_array();
+                                let mut rgb = trace.color.unwrap_or([r, g, b]);
+                                if ui.color_edit_button_srgb(&mut rgb).changed() {
+                                    trace.color = Some(rgb);
+                                }
+                                if trace.color.is_some() && ui.small_button("Сброс").clicked()
+                                {
+                                    trace.color = None;
+                                }
+                            });
+                            ui.end_row();
+                        }
+                    });
+            }
+            ChartTab::Numbers => {
+                for (kind, name) in AxisNumber::ALL {
+                    ui.radio_value(&mut self.appearance.number, kind, name);
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Десятичных знаков");
+                    ui.add(egui::DragValue::new(&mut self.appearance.digits).range(0..=12));
+                });
+                ui.checkbox(
+                    &mut self.appearance.trailing_zeros,
+                    "Показывать конечные нули",
+                );
+            }
+            ChartTab::Labels => {
+                field(ui, "Заголовок", &mut self.appearance.title, 260.);
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.appearance.title_below, false, "Сверху");
+                    ui.radio_value(&mut self.appearance.title_below, true, "Снизу");
+                });
+                field(ui, "Ось X", &mut self.x_label, 280.);
+                field(ui, "Ось Y", &mut self.y_label, 280.);
+            }
+            ChartTab::Defaults => {
+                if ui.button("Использовать умолчания").clicked() {
+                    self.set_format(defaults.unwrap_or(&ChartOptions::default()));
+                }
+                if editing {
+                    ui.checkbox(
+                        &mut self.save_defaults,
+                        "Сохранить формат как умолчание этого листа",
+                    );
+                }
+            }
+            ChartTab::Data => self.data_fields(ui),
+        }
+    }
+
+    fn data_fields(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(&mut self.mode, DraftMode::Function, "y(x)");
             ui.selectable_value(&mut self.mode, DraftMode::Vectors, "Данные X, Y");
@@ -210,30 +387,6 @@ impl Draft {
                 });
             }
         }
-        ui.add_space(6.);
-        ui.separator();
-        ui.add_space(4.);
-        ui.horizontal_wrapped(|ui| {
-            if self.mode != DraftMode::Polar {
-                ui.checkbox(&mut self.log_x, "Log X");
-                ui.checkbox(&mut self.log_y, "Log Y");
-            }
-            ui.checkbox(&mut self.equal_scale, "Масштаб 1:1");
-            ui.checkbox(&mut self.markers, "Маркеры");
-            ui.checkbox(&mut self.show_legend, "Легенда");
-        });
-        ui.add_space(4.);
-        ui.horizontal(|ui| {
-            field(ui, "X мин", &mut self.x_min, 66.);
-            field(ui, "макс", &mut self.x_max, 66.);
-            field(ui, "Подпись", &mut self.x_label, 90.);
-        });
-        ui.horizontal(|ui| {
-            field(ui, "Y мин", &mut self.y_min, 66.);
-            field(ui, "макс", &mut self.y_max, 66.);
-            field(ui, "Подпись", &mut self.y_label, 90.);
-        });
-        ui.add_space(6.);
     }
 
     pub fn spec(&self) -> Calc<ChartSpec> {
@@ -304,6 +457,7 @@ impl Draft {
             y_max,
             x_label: self.x_label.trim().into(),
             y_label: self.y_label.trim().into(),
+            appearance: self.appearance.clone(),
         })
     }
 }
@@ -376,8 +530,20 @@ pub fn draw(
         );
         return None;
     };
-    let top_pad = if options.show_legend { 32. } else { 14. };
-    let bottom_pad = if options.x_label.is_empty() { 33. } else { 44. };
+    let appearance = &options.appearance;
+    let title = appearance.title.trim();
+    let top_title = if !title.is_empty() && !appearance.title_below {
+        20.
+    } else {
+        0.
+    };
+    let bottom_title = if !title.is_empty() && appearance.title_below {
+        20.
+    } else {
+        0.
+    };
+    let top_pad = if options.show_legend { 32. } else { 14. } + top_title;
+    let bottom_pad = if options.x_label.is_empty() { 33. } else { 44. } + bottom_title;
     let left_pad = if options.y_label.is_empty() { 56. } else { 66. };
     let grid = Rect::from_min_max(
         rect.min + vec2(left_pad, top_pad),
@@ -474,26 +640,55 @@ pub fn draw(
         ))
     };
 
-    for i in 0..=4 {
-        let ratio = i as f32 / 4.;
-        let x = egui::lerp(grid.x_range(), ratio);
-        let y = egui::lerp(grid.y_range(), 1. - ratio);
-        painter.vline(x, grid.y_range(), Stroke::new(1_f32, line));
-        painter.hline(grid.x_range(), y, Stroke::new(1_f32, line));
-        let xv = unmap_coord(xmin + (xmax - xmin) * f64::from(ratio), log_x);
-        let yv = unmap_coord(ymin + (ymax - ymin) * f64::from(ratio), log_y);
+    for axis in 0..2 {
+        let count = appearance.divisions[axis].clamp(1, 20);
+        for i in 0..=count {
+            let ratio = f32::from(i) / f32::from(count);
+            let (pos, align, value, log) = if axis == 0 {
+                let x = egui::lerp(grid.x_range(), ratio);
+                if appearance.grid[axis] {
+                    painter.vline(x, grid.y_range(), Stroke::new(1_f32, line));
+                }
+                (
+                    Pos2::new(x, grid.bottom() + 6.),
+                    Align2::CENTER_TOP,
+                    xmin + (xmax - xmin) * f64::from(ratio),
+                    log_x,
+                )
+            } else {
+                let y = egui::lerp(grid.y_range(), 1. - ratio);
+                if appearance.grid[axis] {
+                    painter.hline(grid.x_range(), y, Stroke::new(1_f32, line));
+                }
+                (
+                    Pos2::new(grid.left() - 6., y),
+                    Align2::RIGHT_CENTER,
+                    ymin + (ymax - ymin) * f64::from(ratio),
+                    log_y,
+                )
+            };
+            if appearance.numbers[axis] {
+                painter.text(
+                    pos,
+                    align,
+                    appearance.tick(unmap_coord(value, log)),
+                    FontId::proportional(10.),
+                    ink,
+                );
+            }
+        }
+    }
+    if !title.is_empty() {
+        let y = if appearance.title_below {
+            rect.bottom() - 11.
+        } else {
+            rect.top() + 11.
+        };
         painter.text(
-            Pos2::new(x, grid.bottom() + 6.),
-            Align2::CENTER_TOP,
-            tick(xv),
-            FontId::proportional(10.),
-            ink,
-        );
-        painter.text(
-            Pos2::new(grid.left() - 6., y),
-            Align2::RIGHT_CENTER,
-            tick(yv),
-            FontId::proportional(10.),
+            Pos2::new(rect.center().x, y),
+            Align2::CENTER_CENTER,
+            title,
+            FontId::proportional(13.),
             ink,
         );
     }
@@ -526,7 +721,7 @@ pub fn draw(
 
     if !options.x_label.is_empty() {
         painter.text(
-            Pos2::new(grid.center().x, rect.bottom() - 4.),
+            Pos2::new(grid.center().x, rect.bottom() - 4. - bottom_title),
             Align2::CENTER_BOTTOM,
             &options.x_label,
             FontId::proportional(11.),
@@ -551,10 +746,20 @@ pub fn draw(
     let mouse = hover.filter(|&pos| grid.contains(pos));
     let snap = mouse.filter(|_| !matches!(trace_mode, TraceMode::Cursor));
     let labels = rect.width() / curves.len().max(1) as f32;
+    let default_style = list_rs::editing::ChartTraceStyle::default();
     for (series, (name, points)) in curves.iter().enumerate() {
-        let color = COLORS[series % COLORS.len()];
+        let style = appearance.traces.get(series).unwrap_or(&default_style);
+        let color = style
+            .color
+            .map(|[r, g, b]| Color32::from_rgb(r, g, b))
+            .unwrap_or(COLORS[series % COLORS.len()]);
+        let label = if style.label.trim().is_empty() {
+            name
+        } else {
+            &style.label
+        };
         if options.show_legend {
-            let label_at = rect.left_top() + vec2(10. + series as f32 * labels, 12.);
+            let label_at = rect.left_top() + vec2(10. + series as f32 * labels, 12. + top_title);
             let legend = Rect::from_min_size(label_at, vec2((labels - 12.).max(0.), 16.));
             let swatch_y = label_at.y + 6.;
             painter.line_segment(
@@ -567,7 +772,7 @@ pub fn draw(
             painter.with_clip_rect(legend).text(
                 label_at + vec2(16., 0.),
                 Align2::LEFT_TOP,
-                name,
+                label,
                 FontId::proportional(11.5),
                 color,
             );
@@ -593,17 +798,29 @@ pub fn draw(
                             ));
                         }
                     }
-                    if options.markers && drawn_pts % marker_step == 0 {
+                    if style.line == ChartLine::Points
+                        || (options.markers && drawn_pts % marker_step == 0)
+                    {
                         canvas.circle_filled(pixel, 2.8, color);
                     }
                     drawn_pts += 1;
-                    run.push(pixel);
+                    if style.line != ChartLine::Points {
+                        run.push(pixel);
+                    }
                     continue;
                 }
             }
             if !run.is_empty() {
                 if run.len() == 1 {
                     canvas.circle_filled(run[0], 3., color);
+                    run.clear();
+                } else if style.line == ChartLine::Dashed {
+                    canvas.extend(Shape::dashed_line(
+                        &run,
+                        Stroke::new(1.7_f32, color),
+                        7.,
+                        4.,
+                    ));
                     run.clear();
                 } else {
                     canvas.add(Shape::line(
@@ -650,7 +867,7 @@ pub fn draw(
             format!("x = {}   y = {}", tick(x), tick(y))
         };
         painter.text(
-            rect.right_bottom() - vec2(12., 7.),
+            rect.right_bottom() - vec2(12., 7. + bottom_title),
             Align2::RIGHT_BOTTOM,
             readout,
             FontId::proportional(10.),

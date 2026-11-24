@@ -1,4 +1,4 @@
-use crate::editing::{ChartOptions, PageSettings};
+use crate::editing::{ChartLine, ChartOptions, ChartTraceStyle, PageSettings};
 use crate::sheet::Sheet;
 use crate::value::Calc;
 use std::collections::HashMap;
@@ -137,16 +137,28 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
     };
 
     let options = chart.options;
+    let format = &options.appearance;
+    let title = format.title.trim();
+    let top_title = if !title.is_empty() && !format.title_below {
+        20.
+    } else {
+        0.
+    };
+    let bottom_title = if !title.is_empty() && format.title_below {
+        20.
+    } else {
+        0.
+    };
     let log_x = !chart.is_polar && options.log_x;
     let log_y = !chart.is_polar && options.log_y;
     let left = 62.0;
     let right = w - 20.0;
-    let top = if options.show_legend { 32.0 } else { 16.0 };
+    let top = if options.show_legend { 32.0 } else { 16.0 } + top_title;
     let bottom = if options.x_label.is_empty() {
         h - 32.0
     } else {
         h - 44.0
-    };
+    } - bottom_title;
     let gw = right - left;
     let gh = bottom - top;
 
@@ -219,27 +231,41 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
         w - 1.0,
         h - 1.0
     );
-    for i in 0..=4 {
-        let r = f64::from(i) / 4.0;
-        let gx = left + r * gw;
-        let gy = bottom - r * gh;
-        let _ = write!(
-            svg,
-            "<line x1=\"{gx:.1}\" y1=\"{top:.1}\" x2=\"{gx:.1}\" y2=\"{bottom:.1}\" stroke=\"#e5edf0\"/>\
-             <line x1=\"{left:.1}\" y1=\"{gy:.1}\" x2=\"{right:.1}\" y2=\"{gy:.1}\" stroke=\"#e5edf0\"/>"
-        );
-        let xv = unmap_coord(xmin + (xmax - xmin) * r, log_x);
-        let yv = unmap_coord(ymin + (ymax - ymin) * r, log_y);
-        let _ = write!(
-            svg,
-            "<text x=\"{gx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"10\" fill=\"#2f4651\">{}</text>\
-             <text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"end\" font-size=\"10\" fill=\"#2f4651\">{}</text>",
-            bottom + 14.0,
-            escape_html(&tick_str(xv)),
-            left - 6.0,
-            gy + 3.5,
-            escape_html(&tick_str(yv))
-        );
+    for axis in 0..2 {
+        let count = format.divisions[axis].clamp(1, 20);
+        for i in 0..=count {
+            let r = f64::from(i) / f64::from(count);
+            let (x, y, align, value) = if axis == 0 {
+                let x = left + r * gw;
+                if format.grid[axis] {
+                    let _ = write!(svg, "<line x1=\"{x:.1}\" y1=\"{top:.1}\" x2=\"{x:.1}\" y2=\"{bottom:.1}\" stroke=\"#e5edf0\"/>");
+                }
+                (
+                    x,
+                    bottom + 14.,
+                    "middle",
+                    unmap_coord(xmin + (xmax - xmin) * r, log_x),
+                )
+            } else {
+                let y = bottom - r * gh;
+                if format.grid[axis] {
+                    let _ = write!(svg, "<line x1=\"{left:.1}\" y1=\"{y:.1}\" x2=\"{right:.1}\" y2=\"{y:.1}\" stroke=\"#e5edf0\"/>");
+                }
+                (
+                    left - 6.,
+                    y + 3.5,
+                    "end",
+                    unmap_coord(ymin + (ymax - ymin) * r, log_y),
+                )
+            };
+            if format.numbers[axis] {
+                let _ = write!(svg, "<text x=\"{x:.1}\" y=\"{y:.1}\" text-anchor=\"{align}\" font-size=\"10\" fill=\"#2f4651\">{}</text>", escape_html(&format.tick(value)));
+            }
+        }
+    }
+    if !title.is_empty() {
+        let y = if format.title_below { h - 6. } else { 15. };
+        let _ = write!(svg, "<text x=\"{}\" y=\"{y}\" text-anchor=\"middle\" font-size=\"13\" fill=\"#2f4651\">{}</text>", w / 2., escape_html(title));
     }
     if !log_x && xmin < 0.0 && xmax > 0.0 {
         if let Some((ox, _)) = project([0.0, 0.0]) {
@@ -262,7 +288,7 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
             svg,
             "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"11\" fill=\"#2f4651\">{}</text>",
             left + gw * 0.5,
-            h - 6.0,
+            h - 6.0 - bottom_title,
             escape_html(&options.x_label)
         );
     }
@@ -276,17 +302,34 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
     }
 
     let step_x = gw / curves.len().max(1) as f64;
+    let default_style = ChartTraceStyle::default();
     for (s_idx, (name, pts)) in curves.iter().enumerate() {
-        let color = COLORS[s_idx % COLORS.len()];
+        let style = format.traces.get(s_idx).unwrap_or(&default_style);
+        let custom = style
+            .color
+            .map(|[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}"));
+        let color = custom.as_deref().unwrap_or(COLORS[s_idx % COLORS.len()]);
+        let label = if style.label.trim().is_empty() {
+            name
+        } else {
+            &style.label
+        };
+        let dash = if style.line == ChartLine::Dashed {
+            r#" stroke-dasharray="7 4""#
+        } else {
+            ""
+        };
         if options.show_legend {
             let lx = left + s_idx as f64 * step_x;
+            let swatch = 16. + top_title;
+            let label_y = 19. + top_title;
             let _ = write!(
                 svg,
-                "<line x1=\"{lx:.1}\" y1=\"16\" x2=\"{:.1}\" y2=\"16\" stroke=\"{color}\" stroke-width=\"2\"/>\
-                 <text x=\"{:.1}\" y=\"19\" font-size=\"11\" fill=\"{color}\">{}</text>",
+                "<line x1=\"{lx:.1}\" y1=\"{swatch}\" x2=\"{:.1}\" y2=\"{swatch}\" stroke=\"{color}\" stroke-width=\"2\"/>\
+                 <text x=\"{:.1}\" y=\"{label_y}\" font-size=\"11\" fill=\"{color}\">{}</text>",
                 lx + 14.0,
                 lx + 18.0,
-                escape_html(name)
+                escape_html(label)
             );
         }
         let mut run = Vec::new();
@@ -302,19 +345,25 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
                     "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"3\" fill=\"{color}\"/>"
                 );
             } else if run.len() > 1 {
-                let mut poly = String::new();
-                for (i, &(x, y)) in run.iter().enumerate() {
-                    if i > 0 {
-                        poly.push(' ');
+                if style.line != ChartLine::Points {
+                    let mut poly = String::new();
+                    for (i, &(x, y)) in run.iter().enumerate() {
+                        if i > 0 {
+                            poly.push(' ');
+                        }
+                        let _ = write!(poly, "{x:.1},{y:.1}");
                     }
-                    let _ = write!(poly, "{x:.1},{y:.1}");
-                }
-                let _ = write!(
+                    let _ = write!(
                     svg,
-                    "<polyline fill=\"none\" stroke=\"{color}\" stroke-width=\"1.8\" points=\"{poly}\"/>"
+                    "<polyline fill=\"none\" stroke=\"{color}\" stroke-width=\"1.8\"{dash} points=\"{poly}\"/>"
                 );
-                if options.markers {
-                    let stride = (run.len() / 40).max(1);
+                }
+                if options.markers || style.line == ChartLine::Points {
+                    let stride = if style.line == ChartLine::Points {
+                        1
+                    } else {
+                        (run.len() / 40).max(1)
+                    };
                     for &(x, y) in run.iter().step_by(stride) {
                         let _ = write!(
                             svg,

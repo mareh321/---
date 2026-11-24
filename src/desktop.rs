@@ -241,6 +241,7 @@ struct Worksheet {
     unsaved: bool,
     origin: Pos2,
     plots: HashMap<usize, PlotRegion>,
+    chart_defaults: Option<editing::ChartOptions>,
     plots3d: HashMap<usize, Plot3dRegion>,
     images: HashMap<usize, editing::ImageSpec>,
     areas: Vec<editing::AreaSpec>,
@@ -474,6 +475,7 @@ impl Worksheet {
             unsaved: false,
             origin: Pos2::new(left, top),
             plots,
+            chart_defaults: editing::chart_defaults(xml)?,
             plots3d,
             images,
             areas,
@@ -614,9 +616,15 @@ impl Worksheet {
         index: usize,
         chart: &editing::ChartSpec,
         options: &editing::ChartOptions,
+        save_defaults: bool,
     ) -> Calc<()> {
         let id = &self.sheet.regions[index].source_id;
         let xml = editing::replace_chart_with_options(&self.xml, id, chart, options)?;
+        let xml = if save_defaults {
+            editing::set_chart_defaults(&xml, options)?
+        } else {
+            xml
+        };
         let candidate = self.rebuild(&xml, None)?;
         candidate
             .plots
@@ -1637,9 +1645,14 @@ impl Workbench {
         })
     }
 
-    fn start_insert(&mut self, draft: DraftRegion) {
+    fn start_insert(&mut self, mut draft: DraftRegion) {
         if self.insertion.is_some() {
             return;
+        }
+        if let DraftRegion::Chart(chart) = &mut draft {
+            if let Some(options) = &self.document.chart_defaults {
+                chart.set_format(options);
+            }
         }
         self.insertion = Some(Insertion {
             at: self.position_for_insert(),
@@ -2310,7 +2323,18 @@ impl Workbench {
                 let spec = value.spec()?;
                 let options = value.options()?;
                 if let Some(index) = insert.replace_chart {
-                    self.document.change_chart(index, &spec, &options)?;
+                    let unchanged = self
+                        .document
+                        .plots
+                        .get(&index)
+                        .is_some_and(|plot| plot.spec == spec && plot.options == options);
+                    let save_defaults = value.save_defaults
+                        && self.document.chart_defaults.as_ref() != Some(&options);
+                    if unchanged && !save_defaults {
+                        return Ok(());
+                    }
+                    self.document
+                        .change_chart(index, &spec, &options, save_defaults)?;
                     index
                 } else {
                     self.document.insert(
@@ -2362,8 +2386,15 @@ impl Workbench {
             self.insertion = Some(insert);
             return;
         }
+        let chart_dialog = matches!(&insert.draft, DraftRegion::Chart(_));
+        let editing_chart = chart_dialog && insert.replace_chart.is_some();
+        let defaults = if chart_dialog {
+            self.document.chart_defaults.as_ref()
+        } else {
+            None
+        };
         let response = egui::Modal::new(egui::Id::new("add_region")).show(ctx, |ui| {
-            ui.set_width(435.);
+            ui.set_width(if chart_dialog { 535. } else { 435. });
             match &mut insert.draft {
                 DraftRegion::Text {
                     body,
@@ -2465,8 +2496,12 @@ impl Workbench {
                     }
                 }
                 DraftRegion::Chart(draft) => {
-                    ui.heading("График X–Y");
-                    draft.fields(ui);
+                    ui.heading(if editing_chart {
+                        "Формат графика"
+                    } else {
+                        "Вставка графика"
+                    });
+                    draft.fields(ui, defaults, editing_chart);
                 }
                 DraftRegion::Plot3d(draft) => {
                     ui.heading("3D-поверхность / Контурный график");
@@ -2478,22 +2513,38 @@ impl Workbench {
                 ui.label(RichText::new(error).color(ERROR_DARK));
             }
             ui.horizontal(|ui| {
-                (
-                    ui.button("Применить").clicked(),
-                    ui.button("Отмена").clicked(),
-                )
+                let ok = (!chart_dialog || editing_chart)
+                    && ui
+                        .button(if chart_dialog {
+                            "ОК"
+                        } else {
+                            "Применить"
+                        })
+                        .clicked();
+                let cancel = ui.button("Отмена").clicked();
+                let apply = chart_dialog && ui.button("Применить").clicked();
+                if let DraftRegion::Chart(draft) = &mut insert.draft {
+                    if ui.button("Справка").clicked() {
+                        draft.toggle_help();
+                    }
+                }
+                (ok, cancel, apply)
             })
             .inner
         });
-        if response.inner.0 {
+        let (ok, cancel, apply) = response.inner;
+        if ok || apply {
             match self.commit_insert(&insert, None) {
                 Ok(()) => {
                     ctx.request_repaint();
-                    return;
+                    if ok || !editing_chart {
+                        return;
+                    }
+                    insert.error = None;
                 }
                 Err(error) => insert.error = Some(error),
             }
-        } else if response.inner.1 || response.should_close() {
+        } else if cancel || response.should_close() {
             return;
         }
         self.insertion = Some(insert);
@@ -6230,6 +6281,58 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chart_format_and_document_defaults_survive_export_and_undo() {
+        use editing::{AxisNumber, ChartLine};
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        app.replace(Worksheet::chart_example().unwrap());
+        let index = *app.document.plots.keys().next().unwrap();
+        let before = app.document.plots[&index].options.clone();
+        let mut options = before.clone();
+        options.appearance.title = "Измерения & модель".into();
+        options.appearance.title_below = true;
+        options.appearance.grid[1] = false;
+        options.appearance.divisions[0] = 6;
+        options.appearance.number = AxisNumber::Decimal;
+        options.appearance.digits = 2;
+        options.appearance.trailing_zeros = true;
+        options.appearance.traces[0].color = Some([1, 35, 69]);
+        options.appearance.traces[0].line = ChartLine::Dashed;
+        options.appearance.traces[0].label = "Измерения".into();
+        options.appearance.traces[1].line = ChartLine::Points;
+        app.edit_chart(index);
+        let insert = app.insertion.take().unwrap();
+        let mut insert = insert;
+        let DraftRegion::Chart(draft) = &mut insert.draft else {
+            unreachable!()
+        };
+        assert!(draft.tab == chart_view::ChartTab::Axes);
+        draft.set_format(&options);
+        draft.save_defaults = true;
+        app.commit_insert(&insert, None).unwrap();
+        app.commit_insert(&insert, None).unwrap();
+        assert_eq!(app.undo_stack.len(), 1);
+        let exported = app.document.export().unwrap();
+        let reopened = Worksheet::load(&exported, "Копия".into(), None).unwrap();
+        assert_eq!(reopened.plots[&index].options, options);
+        assert_eq!(reopened.chart_defaults.as_ref(), Some(&options));
+        let report = reopened.build_html_report();
+        assert!(report.contains("Измерения &amp; модель"));
+        assert!(report.contains("#012345"));
+        assert!(report.contains("stroke-dasharray"));
+        assert_eq!(options.appearance.tick(1.5), "1.50");
+        app.apply_tool_action(tool_ribbon::ToolAction::ChartXY);
+        let new_insert = app.insertion.take().unwrap();
+        let DraftRegion::Chart(new_draft) = new_insert.draft else {
+            unreachable!()
+        };
+        assert_eq!(new_draft.options().unwrap(), options);
+        app.undo();
+        assert_eq!(app.document.plots[&index].options, before);
+        assert!(app.document.chart_defaults.is_none());
+    }
 
     #[test]
     fn sheet_fills_the_viewport_and_grows_for_a_large_draft() {

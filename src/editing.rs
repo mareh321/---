@@ -899,6 +899,228 @@ pub fn write_copy(path: &Path, xml: &str) -> Calc<()> {
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AxisNumber {
+    #[default]
+    General,
+    Decimal,
+    Scientific,
+    Engineering,
+    Fraction,
+}
+
+impl AxisNumber {
+    pub const ALL: [(Self, &'static str); 5] = [
+        (Self::General, "Общий"),
+        (Self::Decimal, "Десятичный"),
+        (Self::Scientific, "Научный"),
+        (Self::Engineering, "Инженерный"),
+        (Self::Fraction, "Дробь"),
+    ];
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ChartLine {
+    #[default]
+    Solid,
+    Dashed,
+    Points,
+}
+
+impl ChartLine {
+    pub const ALL: [(Self, &'static str); 3] = [
+        (Self::Solid, "Сплошная"),
+        (Self::Dashed, "Штриховая"),
+        (Self::Points, "Точки"),
+    ];
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChartTraceStyle {
+    pub label: String,
+    pub color: Option<[u8; 3]>,
+    pub line: ChartLine,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChartAppearance {
+    pub grid: [bool; 2],
+    pub numbers: [bool; 2],
+    pub divisions: [u8; 2],
+    pub number: AxisNumber,
+    pub digits: u8,
+    pub trailing_zeros: bool,
+    pub title: String,
+    pub title_below: bool,
+    pub traces: [ChartTraceStyle; 4],
+}
+
+impl Default for ChartAppearance {
+    fn default() -> Self {
+        Self {
+            grid: [true; 2],
+            numbers: [true; 2],
+            divisions: [4; 2],
+            number: AxisNumber::General,
+            digits: 3,
+            trailing_zeros: false,
+            title: String::new(),
+            title_below: false,
+            traces: Default::default(),
+        }
+    }
+}
+
+impl ChartAppearance {
+    pub fn tick(&self, n: f64) -> String {
+        let digits = usize::from(self.digits.min(12));
+        let fixed = |value: f64, digits: usize| {
+            let s = format!("{value:.digits$}");
+            if self.trailing_zeros || digits == 0 {
+                s
+            } else {
+                s.trim_end_matches('0').trim_end_matches('.').into()
+            }
+        };
+        let scientific = || {
+            let text = format!("{n:.digits$e}");
+            if self.trailing_zeros || digits == 0 {
+                return text;
+            }
+            if let Some((mantissa, exponent)) = text.split_once('e') {
+                return format!(
+                    "{}e{exponent}",
+                    mantissa.trim_end_matches('0').trim_end_matches('.')
+                );
+            }
+            text
+        };
+        match self.number {
+            AxisNumber::General if n.abs() >= 10_000. || (n != 0. && n.abs() < 0.001) => {
+                format!("{n:.1e}")
+            }
+            AxisNumber::General | AxisNumber::Decimal => fixed(n, digits),
+            AxisNumber::Scientific => scientific(),
+            AxisNumber::Engineering if n != 0. && n.is_normal() => {
+                let power = (n.abs().log10() / 3.).floor() as i32 * 3;
+                format!("{}e{power}", fixed(n / 10_f64.powi(power), digits))
+            }
+            AxisNumber::Engineering => scientific(),
+            AxisNumber::Fraction if n.abs() < 1e12 => {
+                let best = (1..=100)
+                    .map(|den| {
+                        let num = (n * f64::from(den)).round();
+                        (num, den, (n - num / f64::from(den)).abs())
+                    })
+                    .find(|&(_, _, error)| error <= 10_f64.powi(-(digits as i32 + 1)));
+                match best {
+                    Some((num, 1, _)) => format!("{num:.0}"),
+                    Some((num, den, _)) => format!("{num:.0}/{den}"),
+                    None => fixed(n, digits),
+                }
+            }
+            AxisNumber::Fraction => fixed(n, digits),
+        }
+    }
+
+    fn xml_attrs(&self, out: &mut String) {
+        let default = Self::default();
+        if self == &default {
+            return;
+        }
+        for (i, axis) in ["x", "y"].into_iter().enumerate() {
+            if !self.grid[i] {
+                out.push_str(&format!(" grid-{axis}=\"false\""));
+            }
+            if !self.numbers[i] {
+                out.push_str(&format!(" numbers-{axis}=\"false\""));
+            }
+            if self.divisions[i] != default.divisions[i] {
+                out.push_str(&format!(" divisions-{axis}=\"{}\"", self.divisions[i]));
+            }
+        }
+        if self.number != default.number {
+            let index = AxisNumber::ALL
+                .iter()
+                .position(|&(kind, _)| kind == self.number)
+                .unwrap_or(0);
+            out.push_str(&format!(" axis-number=\"{index}\""));
+        }
+        if self.digits != default.digits {
+            out.push_str(&format!(" axis-digits=\"{}\"", self.digits));
+        }
+        if self.trailing_zeros {
+            out.push_str(" axis-zeros=\"true\"");
+        }
+        if !self.title.trim().is_empty() {
+            out.push_str(&format!(" title=\"{}\"", escape(self.title.trim())));
+        }
+        if self.title_below {
+            out.push_str(" title-below=\"true\"");
+        }
+        for (i, trace) in self.traces.iter().enumerate() {
+            if !trace.label.trim().is_empty() {
+                out.push_str(&format!(
+                    " trace-{i}-label=\"{}\"",
+                    escape(trace.label.trim())
+                ));
+            }
+            if let Some([r, g, b]) = trace.color {
+                out.push_str(&format!(" trace-{i}-color=\"{r:02x}{g:02x}{b:02x}\""));
+            }
+            let line = match trace.line {
+                ChartLine::Solid => continue,
+                ChartLine::Dashed => "dashed",
+                ChartLine::Points => "points",
+            };
+            out.push_str(&format!(" trace-{i}-line=\"{line}\""));
+        }
+    }
+
+    fn from_node(node: Xml<'_, '_>) -> Self {
+        let parse = |name: &str| {
+            node.attribute(name)
+                .and_then(|text| text.parse::<u8>().ok())
+        };
+        let mut appearance = Self {
+            number: parse("axis-number")
+                .and_then(|i| AxisNumber::ALL.get(usize::from(i)))
+                .map(|&(kind, _)| kind)
+                .unwrap_or_default(),
+            digits: parse("axis-digits").unwrap_or(3).min(12),
+            trailing_zeros: node.attribute("axis-zeros") == Some("true"),
+            title: node.attribute("title").unwrap_or_default().into(),
+            title_below: node.attribute("title-below") == Some("true"),
+            ..Self::default()
+        };
+        for (i, axis) in ["x", "y"].into_iter().enumerate() {
+            appearance.grid[i] = node.attribute(format!("grid-{axis}").as_str()) != Some("false");
+            appearance.numbers[i] =
+                node.attribute(format!("numbers-{axis}").as_str()) != Some("false");
+            appearance.divisions[i] = parse(&format!("divisions-{axis}"))
+                .unwrap_or(4)
+                .clamp(1, 20);
+        }
+        for (i, trace) in appearance.traces.iter_mut().enumerate() {
+            let attr = |key: &str| node.attribute(format!("trace-{i}-{key}").as_str());
+            trace.label = attr("label").unwrap_or_default().into();
+            trace.color = attr("color")
+                .filter(|s| s.len() == 6)
+                .and_then(|s| u32::from_str_radix(s, 16).ok())
+                .map(|rgb| {
+                    let [_, r, g, b] = rgb.to_be_bytes();
+                    [r, g, b]
+                });
+            trace.line = match attr("line") {
+                Some("dashed") => ChartLine::Dashed,
+                Some("points") => ChartLine::Points,
+                _ => ChartLine::Solid,
+            };
+        }
+        appearance
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChartOptions {
     pub log_x: bool,
@@ -912,6 +1134,7 @@ pub struct ChartOptions {
     pub y_max: Option<f64>,
     pub x_label: String,
     pub y_label: String,
+    pub appearance: ChartAppearance,
 }
 
 impl Default for ChartOptions {
@@ -928,6 +1151,7 @@ impl Default for ChartOptions {
             y_max: None,
             x_label: String::new(),
             y_label: String::new(),
+            appearance: ChartAppearance::default(),
         }
     }
 }
@@ -968,6 +1192,7 @@ impl ChartOptions {
         if !self.y_label.trim().is_empty() {
             out.push_str(&format!(" y-label=\"{}\"", escape(self.y_label.trim())));
         }
+        self.appearance.xml_attrs(&mut out);
         out
     }
 
@@ -989,11 +1214,12 @@ impl ChartOptions {
             y_max: opt_f64("y-max"),
             x_label: node.attribute("x-label").unwrap_or_default().into(),
             y_label: node.attribute("y-label").unwrap_or_default().into(),
+            appearance: ChartAppearance::from_node(node),
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ChartSpec {
     Function {
         expression: String,
@@ -1435,6 +1661,45 @@ pub fn charts(xml: &str) -> Calc<std::collections::HashMap<String, ChartSpec>> {
         }
     }
     Ok(result)
+}
+
+pub fn chart_defaults(xml: &str) -> Calc<Option<ChartOptions>> {
+    let doc = document(xml)?;
+    let defaults = elements(doc.root_element())
+        .find(|&n| named(n, WS, "pointReleaseData"))
+        .and_then(|point| elements(point).find(|&n| named(n, LIST_NS, "chartDefaults")))
+        .map(ChartOptions::from_node);
+    Ok(defaults)
+}
+
+pub fn set_chart_defaults(xml: &str, options: &ChartOptions) -> Calc<String> {
+    let doc = document(xml)?;
+    let root = doc.root_element();
+    let data = format!(
+        "<ls:chartDefaults xmlns:ls=\"{LIST_NS}\"{}/>",
+        options.xml_attrs()
+    );
+    if let Some(point) = elements(root).find(|&n| named(n, WS, "pointReleaseData")) {
+        let update = elements(point)
+            .find(|&n| named(n, LIST_NS, "chartDefaults"))
+            .map_or_else(
+                || append_child(xml, point, &data),
+                |node| (node.range(), data.clone()),
+            );
+        return patch(xml, vec![update]);
+    }
+    let at = elements(root)
+        .next()
+        .ok_or("пустой лист XMCD")?
+        .range()
+        .start;
+    patch(
+        xml,
+        vec![(
+            at..at,
+            format!("<pointReleaseData xmlns=\"{WS}\">{data}</pointReleaseData>\n  "),
+        )],
+    )
 }
 
 pub fn chart_options(xml: &str) -> Calc<std::collections::HashMap<String, ChartOptions>> {

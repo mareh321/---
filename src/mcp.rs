@@ -1185,6 +1185,7 @@ fn parse_chart_options(args: &Json) -> ChartOptions {
             .and_then(Json::as_str)
             .unwrap_or_default()
             .into(),
+        appearance: Default::default(),
     }
 }
 
