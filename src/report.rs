@@ -267,21 +267,20 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
         let y = if format.title_below { h - 6. } else { 15. };
         let _ = write!(svg, "<text x=\"{}\" y=\"{y}\" text-anchor=\"middle\" font-size=\"13\" fill=\"#2f4651\">{}</text>", w / 2., escape_html(title));
     }
-    if !log_x && xmin < 0.0 && xmax > 0.0 {
-        if let Some((ox, _)) = project([0.0, 0.0]) {
-            let _ = write!(
-                svg,
-                "<line x1=\"{ox:.1}\" y1=\"{top:.1}\" x2=\"{ox:.1}\" y2=\"{bottom:.1}\" stroke=\"#90a2aa\"/>"
-            );
-        }
+    let [at_x, at_y] = format.axes.positions(bounds, [log_x, log_y]);
+    if let Some(x) = at_x {
+        let x = left + x * gw;
+        let _ = write!(
+            svg,
+            "<line x1=\"{x:.1}\" y1=\"{top:.1}\" x2=\"{x:.1}\" y2=\"{bottom:.1}\" stroke=\"#90a2aa\"/>"
+        );
     }
-    if !log_y && ymin < 0.0 && ymax > 0.0 {
-        if let Some((_, oy)) = project([0.0, 0.0]) {
-            let _ = write!(
-                svg,
-                "<line x1=\"{left:.1}\" y1=\"{oy:.1}\" x2=\"{right:.1}\" y2=\"{oy:.1}\" stroke=\"#90a2aa\"/>"
-            );
-        }
+    if let Some(y) = at_y {
+        let y = bottom - y * gh;
+        let _ = write!(
+            svg,
+            "<line x1=\"{left:.1}\" y1=\"{y:.1}\" x2=\"{right:.1}\" y2=\"{y:.1}\" stroke=\"#90a2aa\"/>"
+        );
     }
     if !options.x_label.is_empty() {
         let _ = write!(
@@ -323,12 +322,23 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
             let lx = left + s_idx as f64 * step_x;
             let swatch = 16. + top_title;
             let label_y = 19. + top_title;
+            if style.line == ChartLine::Points {
+                let _ = write!(
+                    svg,
+                    "<circle cx=\"{:.1}\" cy=\"{swatch}\" r=\"2.4\" fill=\"{color}\"/>",
+                    lx + 7.
+                );
+            } else {
+                let width = style.line_width(2.);
+                let _ = write!(svg,
+                    "<line x1=\"{lx:.1}\" y1=\"{swatch}\" x2=\"{:.1}\" y2=\"{swatch}\" stroke=\"{color}\" stroke-width=\"{width}\"{dash}/>",
+                    lx + 14.
+                );
+            }
             let _ = write!(
                 svg,
-                "<line x1=\"{lx:.1}\" y1=\"{swatch}\" x2=\"{:.1}\" y2=\"{swatch}\" stroke=\"{color}\" stroke-width=\"2\"/>\
-                 <text x=\"{:.1}\" y=\"{label_y}\" font-size=\"11\" fill=\"{color}\">{}</text>",
-                lx + 14.0,
-                lx + 18.0,
+                "<text x=\"{:.1}\" y=\"{label_y}\" font-size=\"11\" fill=\"{color}\">{}</text>",
+                lx + 18.,
                 escape_html(label)
             );
         }
@@ -354,9 +364,9 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
                         let _ = write!(poly, "{x:.1},{y:.1}");
                     }
                     let _ = write!(
-                    svg,
-                    "<polyline fill=\"none\" stroke=\"{color}\" stroke-width=\"1.8\"{dash} points=\"{poly}\"/>"
-                );
+                        svg,
+                        "<polyline fill=\"none\" stroke=\"{color}\" stroke-width=\"{}\"{dash} points=\"{poly}\"/>", style.line_width(1.8)
+                    );
                 }
                 if options.markers || style.line == ChartLine::Points {
                     let stride = if style.line == ChartLine::Points {

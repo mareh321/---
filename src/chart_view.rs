@@ -2,7 +2,7 @@ use eframe::egui::{
     self, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, StrokeKind,
 };
 use list_rs::{
-    editing::{AxisNumber, ChartAppearance, ChartLine, ChartOptions, ChartSpec},
+    editing::{AxisNumber, AxisPlacement, ChartAppearance, ChartLine, ChartOptions, ChartSpec},
     number, Calc,
 };
 
@@ -262,6 +262,12 @@ impl Draft {
                         });
                     });
                 }
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Отображение осей");
+                    for (placement, name) in AxisPlacement::ALL {
+                        ui.radio_value(&mut self.appearance.axes, placement, name);
+                    }
+                });
                 ui.checkbox(&mut self.equal_scale, "Одинаковый масштаб");
             }
             ChartTab::Traces => {
@@ -272,7 +278,7 @@ impl Draft {
                 egui::Grid::new("chart_trace_styles")
                     .striped(true)
                     .show(ui, |ui| {
-                        for heading in ["Кривая", "Подпись в легенде", "Линия", "Цвет"]
+                        for heading in ["Кривая", "Подпись в легенде", "Линия", "Толщина", "Цвет"]
                         {
                             ui.strong(heading);
                         }
@@ -295,6 +301,19 @@ impl Draft {
                                         ui.selectable_value(&mut trace.line, style, name);
                                     }
                                 });
+                            ui.add_enabled(
+                                trace.line != ChartLine::Points,
+                                egui::DragValue::new(&mut trace.width)
+                                    .range(0..=8)
+                                    .custom_formatter(|value, _| {
+                                        if value == 0. {
+                                            "Авто".into()
+                                        } else {
+                                            format!("{value:.0}")
+                                        }
+                                    }),
+                            )
+                            .on_hover_text("Толщина линии в пунктах. 0 — стандартная.");
                             ui.horizontal(|ui| {
                                 let [r, g, b, _] = COLORS[i].to_array();
                                 let mut rgb = trace.color.unwrap_or([r, g, b]);
@@ -693,16 +712,17 @@ pub fn draw(
         );
     }
 
-    let axis_color = Color32::from_rgb(144, 162, 170);
-    if !log_x && xmin < 0. && xmax > 0. {
-        if let Some(origin) = project([0., 0.]) {
-            painter.vline(origin.x, grid.y_range(), Stroke::new(1_f32, axis_color));
-        }
+    let axis = Stroke::new(1_f32, Color32::from_rgb(144, 162, 170));
+    let [at_x, at_y] = appearance.axes.positions(bounds, [log_x, log_y]);
+    if let Some(x) = at_x {
+        painter.vline(egui::lerp(grid.x_range(), x as f32), grid.y_range(), axis);
     }
-    if !log_y && ymin < 0. && ymax > 0. {
-        if let Some(origin) = project([0., 0.]) {
-            painter.hline(grid.x_range(), origin.y, Stroke::new(1_f32, axis_color));
-        }
+    if let Some(y) = at_y {
+        painter.hline(
+            grid.x_range(),
+            egui::lerp(grid.y_range(), 1. - y as f32),
+            axis,
+        );
     }
 
     let canvas = painter.with_clip_rect(grid);
@@ -762,13 +782,20 @@ pub fn draw(
             let label_at = rect.left_top() + vec2(10. + series as f32 * labels, 12. + top_title);
             let legend = Rect::from_min_size(label_at, vec2((labels - 12.).max(0.), 16.));
             let swatch_y = label_at.y + 6.;
-            painter.line_segment(
-                [
-                    Pos2::new(label_at.x, swatch_y),
-                    Pos2::new(label_at.x + 12., swatch_y),
-                ],
-                Stroke::new(2.0_f32, color),
-            );
+            let swatch = [
+                Pos2::new(label_at.x, swatch_y),
+                Pos2::new(label_at.x + 12., swatch_y),
+            ];
+            let stroke = Stroke::new(style.line_width(2.), color);
+            match style.line {
+                ChartLine::Points => {
+                    painter.circle_filled(swatch[0].lerp(swatch[1], 0.5), 2.8, color);
+                }
+                ChartLine::Dashed => painter.extend(Shape::dashed_line(&swatch, stroke, 4., 3.)),
+                ChartLine::Solid => {
+                    painter.line_segment(swatch, stroke);
+                }
+            }
             painter.with_clip_rect(legend).text(
                 label_at + vec2(16., 0.),
                 Align2::LEFT_TOP,
@@ -817,7 +844,7 @@ pub fn draw(
                 } else if style.line == ChartLine::Dashed {
                     canvas.extend(Shape::dashed_line(
                         &run,
-                        Stroke::new(1.7_f32, color),
+                        Stroke::new(style.line_width(1.7), color),
                         7.,
                         4.,
                     ));
@@ -825,7 +852,7 @@ pub fn draw(
                 } else {
                     canvas.add(Shape::line(
                         std::mem::take(&mut run),
-                        Stroke::new(1.7_f32, color),
+                        Stroke::new(style.line_width(1.7), color),
                     ));
                 }
             }

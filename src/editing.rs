@@ -935,11 +935,51 @@ impl ChartLine {
     ];
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AxisPlacement {
+    Edges,
+    #[default]
+    Center,
+    Hidden,
+}
+
+impl AxisPlacement {
+    pub const ALL: [(Self, &'static str); 3] = [
+        (Self::Edges, "По краям"),
+        (Self::Center, "По центру"),
+        (Self::Hidden, "Не отображать"),
+    ];
+
+    /// Positions of the Y and X axis lines as fractions from the left and bottom.
+    pub fn positions(self, bounds: [[f64; 2]; 2], logarithmic: [bool; 2]) -> [Option<f64>; 2] {
+        match self {
+            Self::Edges => [Some(0.); 2],
+            Self::Hidden => [None; 2],
+            Self::Center => std::array::from_fn(|i| {
+                let [min, max] = bounds[i];
+                (!logarithmic[i] && min < 0. && max > 0.).then(|| -min / (max - min))
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ChartTraceStyle {
     pub label: String,
     pub color: Option<[u8; 3]>,
     pub line: ChartLine,
+    /// Zero uses the renderer's default width.
+    pub width: u8,
+}
+
+impl ChartTraceStyle {
+    pub fn line_width(&self, default: f32) -> f32 {
+        if self.width == 0 {
+            default
+        } else {
+            f32::from(self.width.min(8))
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -947,6 +987,7 @@ pub struct ChartAppearance {
     pub grid: [bool; 2],
     pub numbers: [bool; 2],
     pub divisions: [u8; 2],
+    pub axes: AxisPlacement,
     pub number: AxisNumber,
     pub digits: u8,
     pub trailing_zeros: bool,
@@ -961,6 +1002,7 @@ impl Default for ChartAppearance {
             grid: [true; 2],
             numbers: [true; 2],
             divisions: [4; 2],
+            axes: AxisPlacement::Center,
             number: AxisNumber::General,
             digits: 3,
             trailing_zeros: false,
@@ -1039,6 +1081,11 @@ impl ChartAppearance {
                 out.push_str(&format!(" divisions-{axis}=\"{}\"", self.divisions[i]));
             }
         }
+        match self.axes {
+            AxisPlacement::Edges => out.push_str(" axes=\"edges\""),
+            AxisPlacement::Hidden => out.push_str(" axes=\"hidden\""),
+            AxisPlacement::Center => {}
+        }
         if self.number != default.number {
             let index = AxisNumber::ALL
                 .iter()
@@ -1068,6 +1115,9 @@ impl ChartAppearance {
             if let Some([r, g, b]) = trace.color {
                 out.push_str(&format!(" trace-{i}-color=\"{r:02x}{g:02x}{b:02x}\""));
             }
+            if trace.width != 0 {
+                out.push_str(&format!(" trace-{i}-width=\"{}\"", trace.width.min(8)));
+            }
             let line = match trace.line {
                 ChartLine::Solid => continue,
                 ChartLine::Dashed => "dashed",
@@ -1083,6 +1133,11 @@ impl ChartAppearance {
                 .and_then(|text| text.parse::<u8>().ok())
         };
         let mut appearance = Self {
+            axes: match node.attribute("axes") {
+                Some("edges") => AxisPlacement::Edges,
+                Some("hidden") => AxisPlacement::Hidden,
+                _ => AxisPlacement::Center,
+            },
             number: parse("axis-number")
                 .and_then(|i| AxisNumber::ALL.get(usize::from(i)))
                 .map(|&(kind, _)| kind)
@@ -1111,6 +1166,7 @@ impl ChartAppearance {
                     let [_, r, g, b] = rgb.to_be_bytes();
                     [r, g, b]
                 });
+            trace.width = parse(&format!("trace-{i}-width")).unwrap_or(0).min(8);
             trace.line = match attr("line") {
                 Some("dashed") => ChartLine::Dashed,
                 Some("points") => ChartLine::Points,

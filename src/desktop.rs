@@ -6284,7 +6284,7 @@ mod tests {
 
     #[test]
     fn chart_format_and_document_defaults_survive_export_and_undo() {
-        use editing::{AxisNumber, ChartLine};
+        use editing::{AxisNumber, AxisPlacement, ChartLine};
         let ctx = egui::Context::default();
         let mut app = Workbench::new(&ctx, None).unwrap();
         app.replace(Worksheet::chart_example().unwrap());
@@ -6294,12 +6294,14 @@ mod tests {
         options.appearance.title = "Измерения & модель".into();
         options.appearance.title_below = true;
         options.appearance.grid[1] = false;
+        options.appearance.axes = AxisPlacement::Hidden;
         options.appearance.divisions[0] = 6;
         options.appearance.number = AxisNumber::Decimal;
         options.appearance.digits = 2;
         options.appearance.trailing_zeros = true;
         options.appearance.traces[0].color = Some([1, 35, 69]);
         options.appearance.traces[0].line = ChartLine::Dashed;
+        options.appearance.traces[0].width = 5;
         options.appearance.traces[0].label = "Измерения".into();
         options.appearance.traces[1].line = ChartLine::Points;
         app.edit_chart(index);
@@ -6321,7 +6323,16 @@ mod tests {
         let report = reopened.build_html_report();
         assert!(report.contains("Измерения &amp; модель"));
         assert!(report.contains("#012345"));
-        assert!(report.contains("stroke-dasharray"));
+        assert!(report.contains(r##"stroke="#012345" stroke-width="5" stroke-dasharray"##));
+        assert!(!report.contains(r##"stroke="#90a2aa""##));
+        assert_eq!(
+            AxisPlacement::Center.positions([[-2., 6.], [-4., 4.]], [false, true]),
+            [Some(0.25), None]
+        );
+        assert_eq!(
+            AxisPlacement::Edges.positions([[1., 5.], [1., 5.]], [true; 2]),
+            [Some(0.); 2]
+        );
         assert_eq!(options.appearance.tick(1.5), "1.50");
         app.apply_tool_action(tool_ribbon::ToolAction::ChartXY);
         let new_insert = app.insertion.take().unwrap();
