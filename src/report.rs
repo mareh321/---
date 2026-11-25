@@ -1,4 +1,4 @@
-use crate::editing::{ChartLine, ChartOptions, ChartTraceStyle, PageSettings};
+use crate::editing::{ChartLine, ChartOptions, ChartTraceStyle, LegendPlacement, PageSettings};
 use crate::sheet::Sheet;
 use crate::value::Calc;
 use std::collections::HashMap;
@@ -153,12 +153,23 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
     let log_y = !chart.is_polar && options.log_y;
     let left = 62.0;
     let right = w - 20.0;
-    let top = if options.show_legend { 32.0 } else { 16.0 } + top_title;
+    let placement = options.show_legend.then_some(format.legend_placement);
+    let top = if placement == Some(LegendPlacement::Above) {
+        32.
+    } else {
+        16.
+    } + top_title;
+    let bottom_legend = if placement == Some(LegendPlacement::Below) {
+        20.
+    } else {
+        0.
+    };
     let bottom = if options.x_label.is_empty() {
         h - 32.0
     } else {
         h - 44.0
-    } - bottom_title;
+    } - bottom_title
+        - bottom_legend;
     let gw = right - left;
     let gh = bottom - top;
 
@@ -287,7 +298,7 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
             svg,
             "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"11\" fill=\"#2f4651\">{}</text>",
             left + gw * 0.5,
-            h - 6.0 - bottom_title,
+            h - 6.0 - bottom_title - bottom_legend,
             escape_html(&options.x_label)
         );
     }
@@ -301,6 +312,14 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
     }
 
     let step_x = gw / curves.len().max(1) as f64;
+    let corner = placement.and_then(|p| p.corner_box([left, top, right, bottom], curves.len()));
+    let mut legend = String::new();
+    if let Some(panel) = &corner {
+        let _ = write!(legend,
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" rx=\"3\" fill=\"#fff\" fill-opacity=\"0.96\" stroke=\"#e5edf0\"/>",
+            panel.x, panel.y, panel.width, panel.height
+        );
+    }
     let default_style = ChartTraceStyle::default();
     for (s_idx, (name, pts)) in curves.iter().enumerate() {
         let style = format.traces.get(s_idx).unwrap_or(&default_style);
@@ -318,27 +337,42 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
         } else {
             ""
         };
-        if options.show_legend {
-            let lx = left + s_idx as f64 * step_x;
-            let swatch = 16. + top_title;
-            let label_y = 19. + top_title;
+        let legend_row = if let Some(panel) = &corner {
+            Some((
+                panel.x + 5.,
+                panel.row_y(s_idx, curves.len()),
+                panel.width - 10.,
+            ))
+        } else {
+            match placement {
+                Some(LegendPlacement::Above) => {
+                    Some((left + s_idx as f64 * step_x, 10. + top_title, step_x))
+                }
+                Some(LegendPlacement::Below) => {
+                    Some((left + s_idx as f64 * step_x, h - bottom_title - 17., step_x))
+                }
+                _ => None,
+            }
+        };
+        if let Some((lx, ly, width)) = legend_row {
+            let swatch = ly + 6.;
             if style.line == ChartLine::Points {
                 let _ = write!(
-                    svg,
+                    legend,
                     "<circle cx=\"{:.1}\" cy=\"{swatch}\" r=\"2.4\" fill=\"{color}\"/>",
                     lx + 7.
                 );
             } else {
                 let width = style.line_width(2.);
-                let _ = write!(svg,
+                let _ = write!(legend,
                     "<line x1=\"{lx:.1}\" y1=\"{swatch}\" x2=\"{:.1}\" y2=\"{swatch}\" stroke=\"{color}\" stroke-width=\"{width}\"{dash}/>",
                     lx + 14.
                 );
             }
-            let _ = write!(
-                svg,
-                "<text x=\"{:.1}\" y=\"{label_y}\" font-size=\"11\" fill=\"{color}\">{}</text>",
+            let _ = write!(legend,
+                "<svg x=\"{:.1}\" y=\"{ly:.1}\" width=\"{:.1}\" height=\"15\" overflow=\"hidden\"><text x=\"0\" y=\"10\" font-size=\"11\" fill=\"{color}\">{}</text></svg>",
                 lx + 18.,
+                (width - 18.).max(0.),
                 escape_html(label)
             );
         }
@@ -385,6 +419,7 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
             run.clear();
         }
     }
+    svg.push_str(&legend);
     svg.push_str("</svg>");
     svg
 }

@@ -982,6 +982,84 @@ impl ChartTraceStyle {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LegendPlacement {
+    #[default]
+    Above,
+    UpperLeft,
+    UpperRight,
+    LowerLeft,
+    LowerRight,
+    Below,
+}
+
+impl LegendPlacement {
+    pub const ALL: [(Self, &'static str); 6] = [
+        (Self::Above, "Над графиком"),
+        (Self::UpperLeft, "Сверху слева"),
+        (Self::UpperRight, "Сверху справа"),
+        (Self::LowerLeft, "Снизу слева"),
+        (Self::LowerRight, "Снизу справа"),
+        (Self::Below, "Под графиком"),
+    ];
+
+    pub fn is_corner(self) -> bool {
+        !matches!(self, Self::Above | Self::Below)
+    }
+
+    pub(crate) fn xml_name(self) -> &'static str {
+        match self {
+            Self::Above => "above",
+            Self::UpperLeft => "upper-left",
+            Self::UpperRight => "upper-right",
+            Self::LowerLeft => "lower-left",
+            Self::LowerRight => "lower-right",
+            Self::Below => "below",
+        }
+    }
+
+    pub fn corner_box(self, plot: [f64; 4], series_count: usize) -> Option<LegendBox> {
+        if !self.is_corner() || series_count == 0 {
+            return None;
+        }
+        let [left, top, right, bottom] = plot;
+        let width = (right - left - 12.).min(155.);
+        let height = (bottom - top - 12.).min(16. * series_count as f64 + 8.);
+        if width < 24. || height < 8. + 12. * series_count as f64 {
+            return None;
+        }
+        let x = if matches!(self, Self::UpperRight | Self::LowerRight) {
+            right - width - 6.
+        } else {
+            left + 6.
+        };
+        let y = if matches!(self, Self::LowerLeft | Self::LowerRight) {
+            bottom - height - 6.
+        } else {
+            top + 6.
+        };
+        Some(LegendBox {
+            x,
+            y,
+            width,
+            height,
+        })
+    }
+}
+
+pub struct LegendBox {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl LegendBox {
+    pub fn row_y(&self, series: usize, count: usize) -> f64 {
+        self.y + 4. + series as f64 * (self.height - 8.) / count as f64
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChartAppearance {
     pub grid: [bool; 2],
@@ -993,6 +1071,7 @@ pub struct ChartAppearance {
     pub trailing_zeros: bool,
     pub title: String,
     pub title_below: bool,
+    pub legend_placement: LegendPlacement,
     pub traces: [ChartTraceStyle; 4],
 }
 
@@ -1008,6 +1087,7 @@ impl Default for ChartAppearance {
             trailing_zeros: false,
             title: String::new(),
             title_below: false,
+            legend_placement: LegendPlacement::Above,
             traces: Default::default(),
         }
     }
@@ -1105,6 +1185,12 @@ impl ChartAppearance {
         if self.title_below {
             out.push_str(" title-below=\"true\"");
         }
+        if self.legend_placement != LegendPlacement::Above {
+            out.push_str(&format!(
+                " legend-placement=\"{}\"",
+                self.legend_placement.xml_name()
+            ));
+        }
         for (i, trace) in self.traces.iter().enumerate() {
             if !trace.label.trim().is_empty() {
                 out.push_str(&format!(
@@ -1146,6 +1232,15 @@ impl ChartAppearance {
             trailing_zeros: node.attribute("axis-zeros") == Some("true"),
             title: node.attribute("title").unwrap_or_default().into(),
             title_below: node.attribute("title-below") == Some("true"),
+            legend_placement: node
+                .attribute("legend-placement")
+                .and_then(|name| {
+                    LegendPlacement::ALL
+                        .iter()
+                        .find(|(p, _)| p.xml_name() == name)
+                })
+                .map(|(placement, _)| *placement)
+                .unwrap_or_default(),
             ..Self::default()
         };
         for (i, axis) in ["x", "y"].into_iter().enumerate() {

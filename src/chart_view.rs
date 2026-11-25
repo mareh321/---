@@ -2,7 +2,10 @@ use eframe::egui::{
     self, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, StrokeKind,
 };
 use list_rs::{
-    editing::{AxisNumber, AxisPlacement, ChartAppearance, ChartLine, ChartOptions, ChartSpec},
+    editing::{
+        AxisNumber, AxisPlacement, ChartAppearance, ChartLine, ChartOptions, ChartSpec,
+        LegendPlacement,
+    },
     number, Calc,
 };
 
@@ -274,6 +277,23 @@ impl Draft {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.show_legend, "Показывать легенду");
                     ui.checkbox(&mut self.markers, "Маркеры точек");
+                });
+                ui.add_enabled_ui(self.show_legend, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Положение легенды");
+                        let placement = &mut self.appearance.legend_placement;
+                        let selected = LegendPlacement::ALL
+                            .iter()
+                            .find(|(value, _)| value == placement)
+                            .map_or("", |(_, name)| *name);
+                        egui::ComboBox::from_id_salt("legend_placement")
+                            .selected_text(selected)
+                            .show_ui(ui, |ui| {
+                                for (value, name) in LegendPlacement::ALL {
+                                    ui.selectable_value(placement, value, name);
+                                }
+                            });
+                    });
                 });
                 egui::Grid::new("chart_trace_styles")
                     .striped(true)
@@ -561,8 +581,19 @@ pub fn draw(
     } else {
         0.
     };
-    let top_pad = if options.show_legend { 32. } else { 14. } + top_title;
-    let bottom_pad = if options.x_label.is_empty() { 33. } else { 44. } + bottom_title;
+    let placement = options.show_legend.then_some(appearance.legend_placement);
+    let top_pad = if placement == Some(LegendPlacement::Above) {
+        32.
+    } else {
+        14.
+    } + top_title;
+    let bottom_legend = if placement == Some(LegendPlacement::Below) {
+        20.
+    } else {
+        0.
+    };
+    let bottom_pad =
+        if options.x_label.is_empty() { 33. } else { 44. } + bottom_title + bottom_legend;
     let left_pad = if options.y_label.is_empty() { 56. } else { 66. };
     let grid = Rect::from_min_max(
         rect.min + vec2(left_pad, top_pad),
@@ -741,7 +772,10 @@ pub fn draw(
 
     if !options.x_label.is_empty() {
         painter.text(
-            Pos2::new(grid.center().x, rect.bottom() - 4. - bottom_title),
+            Pos2::new(
+                grid.center().x,
+                rect.bottom() - 4. - bottom_title - bottom_legend,
+            ),
             Align2::CENTER_BOTTOM,
             &options.x_label,
             FontId::proportional(11.),
@@ -765,45 +799,13 @@ pub fn draw(
     };
     let mouse = hover.filter(|&pos| grid.contains(pos));
     let snap = mouse.filter(|_| !matches!(trace_mode, TraceMode::Cursor));
-    let labels = rect.width() / curves.len().max(1) as f32;
     let default_style = list_rs::editing::ChartTraceStyle::default();
-    for (series, (name, points)) in curves.iter().enumerate() {
+    for (series, (_, points)) in curves.iter().enumerate() {
         let style = appearance.traces.get(series).unwrap_or(&default_style);
         let color = style
             .color
             .map(|[r, g, b]| Color32::from_rgb(r, g, b))
             .unwrap_or(COLORS[series % COLORS.len()]);
-        let label = if style.label.trim().is_empty() {
-            name
-        } else {
-            &style.label
-        };
-        if options.show_legend {
-            let label_at = rect.left_top() + vec2(10. + series as f32 * labels, 12. + top_title);
-            let legend = Rect::from_min_size(label_at, vec2((labels - 12.).max(0.), 16.));
-            let swatch_y = label_at.y + 6.;
-            let swatch = [
-                Pos2::new(label_at.x, swatch_y),
-                Pos2::new(label_at.x + 12., swatch_y),
-            ];
-            let stroke = Stroke::new(style.line_width(2.), color);
-            match style.line {
-                ChartLine::Points => {
-                    painter.circle_filled(swatch[0].lerp(swatch[1], 0.5), 2.8, color);
-                }
-                ChartLine::Dashed => painter.extend(Shape::dashed_line(&swatch, stroke, 4., 3.)),
-                ChartLine::Solid => {
-                    painter.line_segment(swatch, stroke);
-                }
-            }
-            painter.with_clip_rect(legend).text(
-                label_at + vec2(16., 0.),
-                Align2::LEFT_TOP,
-                label,
-                FontId::proportional(11.5),
-                color,
-            );
-        }
         let mut run = Vec::new();
         let valid_count = points.iter().flatten().count();
         let marker_step = (valid_count / 60).max(1);
@@ -894,12 +896,94 @@ pub fn draw(
             format!("x = {}   y = {}", tick(x), tick(y))
         };
         painter.text(
-            rect.right_bottom() - vec2(12., 7. + bottom_title),
+            rect.right_bottom() - vec2(12., 7. + bottom_title + bottom_legend),
             Align2::RIGHT_BOTTOM,
             readout,
             FontId::proportional(10.),
             ink,
         );
+    }
+    if let Some(placement) = placement {
+        let corner = placement.corner_box(
+            [
+                f64::from(grid.left()),
+                f64::from(grid.top()),
+                f64::from(grid.right()),
+                f64::from(grid.bottom()),
+            ],
+            curves.len(),
+        );
+        if let Some(panel) = corner.as_ref() {
+            painter.rect(
+                Rect::from_min_size(
+                    Pos2::new(panel.x as f32, panel.y as f32),
+                    vec2(panel.width as f32, panel.height as f32),
+                ),
+                3.,
+                Color32::from_white_alpha(245),
+                Stroke::new(1_f32, line),
+                StrokeKind::Inside,
+            );
+        }
+        let column_width = rect.width() / curves.len().max(1) as f32;
+        for (series, (name, _)) in curves.iter().enumerate() {
+            let (label_at, width, row_height) = if let Some(panel) = corner.as_ref() {
+                (
+                    Pos2::new(
+                        panel.x as f32 + 5.,
+                        panel.row_y(series, curves.len()) as f32,
+                    ),
+                    panel.width as f32 - 10.,
+                    (panel.height as f32 - 8.) / curves.len() as f32,
+                )
+            } else if !placement.is_corner() {
+                let y = if placement == LegendPlacement::Below {
+                    rect.bottom() - bottom_title - 17.
+                } else {
+                    rect.top() + 12. + top_title
+                };
+                (
+                    Pos2::new(rect.left() + 10. + series as f32 * column_width, y),
+                    (column_width - 12.).max(0.),
+                    16.,
+                )
+            } else {
+                break;
+            };
+            let style = appearance.traces.get(series).unwrap_or(&default_style);
+            let color = style
+                .color
+                .map(|[r, g, b]| Color32::from_rgb(r, g, b))
+                .unwrap_or(COLORS[series % COLORS.len()]);
+            let label = if style.label.trim().is_empty() {
+                name
+            } else {
+                &style.label
+            };
+            let legend = Rect::from_min_size(label_at, vec2(width, row_height));
+            let swatch_y = label_at.y + 6.;
+            let swatch = [
+                Pos2::new(label_at.x, swatch_y),
+                Pos2::new(label_at.x + 12., swatch_y),
+            ];
+            let stroke = Stroke::new(style.line_width(2.), color);
+            match style.line {
+                ChartLine::Points => {
+                    painter.circle_filled(swatch[0].lerp(swatch[1], 0.5), 2.8, color);
+                }
+                ChartLine::Dashed => painter.extend(Shape::dashed_line(&swatch, stroke, 4., 3.)),
+                ChartLine::Solid => {
+                    painter.line_segment(swatch, stroke);
+                }
+            }
+            painter.with_clip_rect(legend).text(
+                label_at + vec2(16., 0.),
+                Align2::LEFT_TOP,
+                label,
+                FontId::proportional(11.5),
+                color,
+            );
+        }
     }
     closest.map(|(_, sample, _)| sample)
 }

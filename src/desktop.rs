@@ -6284,7 +6284,7 @@ mod tests {
 
     #[test]
     fn chart_format_and_document_defaults_survive_export_and_undo() {
-        use editing::{AxisNumber, AxisPlacement, ChartLine};
+        use editing::{AxisNumber, AxisPlacement, ChartLine, LegendPlacement};
         let ctx = egui::Context::default();
         let mut app = Workbench::new(&ctx, None).unwrap();
         app.replace(Worksheet::chart_example().unwrap());
@@ -6295,6 +6295,7 @@ mod tests {
         options.appearance.title_below = true;
         options.appearance.grid[1] = false;
         options.appearance.axes = AxisPlacement::Hidden;
+        options.appearance.legend_placement = LegendPlacement::LowerRight;
         options.appearance.divisions[0] = 6;
         options.appearance.number = AxisNumber::Decimal;
         options.appearance.digits = 2;
@@ -6323,6 +6324,16 @@ mod tests {
         let report = reopened.build_html_report();
         assert!(report.contains("Измерения &amp; модель"));
         assert!(report.contains("#012345"));
+        assert!(report.contains(r#"<rect x="459.0" y="202.0" width="155.0" height="40.0""#));
+        assert_eq!(
+            LegendPlacement::UpperLeft
+                .corner_box([5., 10., 300., 250.], 2)
+                .map(|panel| (panel.x, panel.y, panel.row_y(1, 2))),
+            Some((11., 16., 36.)),
+        );
+        assert!(LegendPlacement::Below
+            .corner_box([5., 10., 300., 250.], 2)
+            .is_none());
         assert!(report.contains(r##"stroke="#012345" stroke-width="5" stroke-dasharray"##));
         assert!(!report.contains(r##"stroke="#90a2aa""##));
         assert_eq!(
