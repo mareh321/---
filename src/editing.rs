@@ -936,6 +936,42 @@ impl ChartLine {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ChartMarker {
+    #[default]
+    Auto,
+    None,
+    Circle,
+    Square,
+    Diamond,
+    Triangle,
+    Cross,
+}
+
+impl ChartMarker {
+    pub const ALL: [(Self, &'static str); 7] = [
+        (Self::Auto, "Авто"),
+        (Self::None, "Без символа"),
+        (Self::Circle, "Круг"),
+        (Self::Square, "Квадрат"),
+        (Self::Diamond, "Ромб"),
+        (Self::Triangle, "Треугольник"),
+        (Self::Cross, "Крест"),
+    ];
+
+    fn xml_name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::None => "none",
+            Self::Circle => "circle",
+            Self::Square => "square",
+            Self::Diamond => "diamond",
+            Self::Triangle => "triangle",
+            Self::Cross => "cross",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AxisPlacement {
     Edges,
     #[default]
@@ -970,6 +1006,11 @@ pub struct ChartTraceStyle {
     pub line: ChartLine,
     /// Zero uses the renderer's default width.
     pub width: u8,
+    pub marker: ChartMarker,
+    /// Diameter in pixels. Zero uses the renderer's default size.
+    pub marker_size: u8,
+    /// One marker per this many valid points. Zero uses automatic spacing.
+    pub marker_every: u16,
 }
 
 impl ChartTraceStyle {
@@ -978,6 +1019,32 @@ impl ChartTraceStyle {
             default
         } else {
             f32::from(self.width.min(8))
+        }
+    }
+
+    pub fn marker_shape(&self, global_markers: bool) -> Option<ChartMarker> {
+        match self.marker {
+            ChartMarker::Auto => {
+                (global_markers || self.line == ChartLine::Points).then_some(ChartMarker::Circle)
+            }
+            ChartMarker::None => None,
+            shape => Some(shape),
+        }
+    }
+
+    pub fn marker_diameter(&self, default: f32) -> f32 {
+        if self.marker_size == 0 {
+            default
+        } else {
+            f32::from(self.marker_size.clamp(3, 16))
+        }
+    }
+
+    pub fn marker_stride(&self, auto_stride: usize) -> usize {
+        match self.marker_every {
+            0 if self.line == ChartLine::Points => 1,
+            0 => auto_stride.max(1),
+            every => usize::from(every.min(1000)),
         }
     }
 }
@@ -1204,6 +1271,24 @@ impl ChartAppearance {
             if trace.width != 0 {
                 out.push_str(&format!(" trace-{i}-width=\"{}\"", trace.width.min(8)));
             }
+            if trace.marker != ChartMarker::Auto {
+                out.push_str(&format!(
+                    " trace-{i}-marker=\"{}\"",
+                    trace.marker.xml_name()
+                ));
+            }
+            if trace.marker_size != 0 {
+                out.push_str(&format!(
+                    " trace-{i}-marker-size=\"{}\"",
+                    trace.marker_size.clamp(3, 16)
+                ));
+            }
+            if trace.marker_every != 0 {
+                out.push_str(&format!(
+                    " trace-{i}-marker-every=\"{}\"",
+                    trace.marker_every.min(1000)
+                ));
+            }
             let line = match trace.line {
                 ChartLine::Solid => continue,
                 ChartLine::Dashed => "dashed",
@@ -1262,6 +1347,21 @@ impl ChartAppearance {
                     [r, g, b]
                 });
             trace.width = parse(&format!("trace-{i}-width")).unwrap_or(0).min(8);
+            trace.marker = attr("marker")
+                .and_then(|name| {
+                    ChartMarker::ALL
+                        .iter()
+                        .find(|(shape, _)| shape.xml_name() == name)
+                })
+                .map(|(shape, _)| *shape)
+                .unwrap_or_default();
+            trace.marker_size = parse(&format!("trace-{i}-marker-size"))
+                .filter(|&size| size != 0)
+                .map_or(0, |size| size.clamp(3, 16));
+            trace.marker_every = attr("marker-every")
+                .and_then(|text| text.parse::<u16>().ok())
+                .unwrap_or(0)
+                .min(1000);
             trace.line = match attr("line") {
                 Some("dashed") => ChartLine::Dashed,
                 Some("points") => ChartLine::Points,
@@ -3349,6 +3449,47 @@ pub fn set_page_settings(xml: &str, settings: &PageSettings) -> Calc<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chart_marker_settings_roundtrip_in_chart_and_worksheet_defaults() {
+        let blank = include_str!("../examples/blank.xmcd");
+        let spec = ChartSpec::Function {
+            expression: "sin(x); cos(x)".into(),
+            from: 0.,
+            to: 5.,
+        };
+        let (xml, id) = insert_region(blank, 12., 20., NewRegion::Chart(&spec)).unwrap();
+        let mut options = ChartOptions::default();
+        assert_eq!(chart_options(&xml).unwrap()[&id], options);
+        assert!(!xml.contains("trace-0-marker"));
+        options.appearance.traces[0].marker = ChartMarker::Diamond;
+        options.appearance.traces[0].marker_size = 12;
+        options.appearance.traces[0].marker_every = 250;
+        options.appearance.traces[1].marker = ChartMarker::None;
+        let xml = replace_chart_with_options(&xml, &id, &spec, &options).unwrap();
+        let xml = set_chart_defaults(&xml, &options).unwrap();
+        let xml = export_xml(&xml, true).unwrap();
+        assert_eq!(chart_options(&xml).unwrap()[&id], options);
+        assert_eq!(chart_defaults(&xml).unwrap().as_ref(), Some(&options));
+
+        let malformed = xml
+            .replace(r#"trace-0-marker="diamond""#, r#"trace-0-marker="other""#)
+            .replace(
+                r#"trace-0-marker-size="12""#,
+                r#"trace-0-marker-size="100""#,
+            )
+            .replace(
+                r#"trace-0-marker-every="250""#,
+                r#"trace-0-marker-every="never""#,
+            );
+        let options = chart_defaults(&malformed).unwrap().unwrap();
+        let style = &options.appearance.traces[0];
+        assert_eq!(style.marker, ChartMarker::Auto);
+        assert_eq!(style.marker_size, 16);
+        assert_eq!(style.marker_every, 0);
+        assert_eq!(style.marker_shape(false), None);
+        assert_eq!(style.marker_shape(true), Some(ChartMarker::Circle));
+    }
 
     #[test]
     fn writes_a_copy_once_and_refuses_to_replace_it() {

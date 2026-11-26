@@ -6284,7 +6284,7 @@ mod tests {
 
     #[test]
     fn chart_format_and_document_defaults_survive_export_and_undo() {
-        use editing::{AxisNumber, AxisPlacement, ChartLine, LegendPlacement};
+        use editing::{AxisNumber, AxisPlacement, ChartLine, ChartMarker, LegendPlacement};
         let ctx = egui::Context::default();
         let mut app = Workbench::new(&ctx, None).unwrap();
         app.replace(Worksheet::chart_example().unwrap());
@@ -6304,7 +6304,11 @@ mod tests {
         options.appearance.traces[0].line = ChartLine::Dashed;
         options.appearance.traces[0].width = 5;
         options.appearance.traces[0].label = "Измерения".into();
+        options.appearance.traces[0].marker = ChartMarker::Square;
+        options.appearance.traces[0].marker_size = 14;
+        options.appearance.traces[0].marker_every = 17;
         options.appearance.traces[1].line = ChartLine::Points;
+        options.appearance.traces[1].marker = ChartMarker::Diamond;
         app.edit_chart(index);
         let insert = app.insertion.take().unwrap();
         let mut insert = insert;

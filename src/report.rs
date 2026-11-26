@@ -1,4 +1,6 @@
-use crate::editing::{ChartLine, ChartOptions, ChartTraceStyle, LegendPlacement, PageSettings};
+use crate::editing::{
+    ChartLine, ChartMarker, ChartOptions, ChartTraceStyle, LegendPlacement, PageSettings,
+};
 use crate::sheet::Sheet;
 use crate::value::Calc;
 use std::collections::HashMap;
@@ -120,6 +122,53 @@ fn unmap_coord(u: f64, log: bool) -> f64 {
         10_f64.powf(u)
     } else {
         u
+    }
+}
+
+fn write_chart_marker(
+    svg: &mut String,
+    marker: ChartMarker,
+    (x, y): (f64, f64),
+    radius: f64,
+    color: &str,
+) {
+    let left = x - radius;
+    let right = x + radius;
+    let top = y - radius;
+    let bottom = y + radius;
+    match marker {
+        ChartMarker::Circle => {
+            let _ = write!(
+                svg,
+                r#"<circle cx="{x:.1}" cy="{y:.1}" r="{radius:.1}" fill="{color}"/>"#
+            );
+        }
+        ChartMarker::Square => {
+            let size = radius * 2.;
+            let _ = write!(
+                svg,
+                r#"<rect x="{left:.1}" y="{top:.1}" width="{size:.1}" height="{size:.1}" fill="{color}"/>"#
+            );
+        }
+        ChartMarker::Diamond => {
+            let _ = write!(
+                svg,
+                r#"<polygon points="{x:.1},{top:.1} {right:.1},{y:.1} {x:.1},{bottom:.1} {left:.1},{y:.1}" fill="{color}"/>"#
+            );
+        }
+        ChartMarker::Triangle => {
+            let _ = write!(
+                svg,
+                r#"<polygon points="{x:.1},{top:.1} {right:.1},{bottom:.1} {left:.1},{bottom:.1}" fill="{color}"/>"#
+            );
+        }
+        ChartMarker::Cross => {
+            let _ = write!(
+                svg,
+                r#"<path d="M{left:.1},{top:.1} L{right:.1},{bottom:.1} M{right:.1},{top:.1} L{left:.1},{bottom:.1}" fill="none" stroke="{color}" stroke-width="1.5"/>"#
+            );
+        }
+        ChartMarker::Auto | ChartMarker::None => {}
     }
 }
 
@@ -323,6 +372,10 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
     let default_style = ChartTraceStyle::default();
     for (s_idx, (name, pts)) in curves.iter().enumerate() {
         let style = format.traces.get(s_idx).unwrap_or(&default_style);
+        let marker = style.marker_shape(options.markers);
+        let diameter = f64::from(style.marker_diameter(4.8));
+        let legacy =
+            style.marker == ChartMarker::Auto && style.marker_every == 0 && style.marker_size == 0;
         let custom = style
             .color
             .map(|[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}"));
@@ -356,17 +409,20 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
         };
         if let Some((lx, ly, width)) = legend_row {
             let swatch = ly + 6.;
-            if style.line == ChartLine::Points {
-                let _ = write!(
-                    legend,
-                    "<circle cx=\"{:.1}\" cy=\"{swatch}\" r=\"2.4\" fill=\"{color}\"/>",
-                    lx + 7.
-                );
-            } else {
+            if style.line != ChartLine::Points {
                 let width = style.line_width(2.);
                 let _ = write!(legend,
                     "<line x1=\"{lx:.1}\" y1=\"{swatch}\" x2=\"{:.1}\" y2=\"{swatch}\" stroke=\"{color}\" stroke-width=\"{width}\"{dash}/>",
                     lx + 14.
+                );
+            }
+            if let Some(marker) = marker {
+                write_chart_marker(
+                    &mut legend,
+                    marker,
+                    (lx + 7., swatch),
+                    diameter.min(12.) / 2.,
+                    color,
                 );
             }
             let _ = write!(legend,
@@ -377,45 +433,44 @@ fn render_chart_svg(chart: &ChartReport<'_>) -> String {
             );
         }
         let mut run = Vec::new();
+        let mut point_index = 0;
+        let auto_stride = if marker.is_some() && !legacy && style.marker_every == 0 {
+            pts.iter().flatten().count() / 60
+        } else {
+            1
+        };
+        let stride = style.marker_stride(auto_stride);
         for pt in pts.iter().copied().chain(std::iter::once(None)) {
             if let Some(val) = pt.and_then(project) {
                 run.push(val);
                 continue;
             }
-            if run.len() == 1 {
-                let (x, y) = run[0];
+            if run.len() > 1 && style.line != ChartLine::Points {
+                let mut poly = String::new();
+                for (i, &(x, y)) in run.iter().enumerate() {
+                    if i > 0 {
+                        poly.push(' ');
+                    }
+                    let _ = write!(poly, "{x:.1},{y:.1}");
+                }
                 let _ = write!(
                     svg,
-                    "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"3\" fill=\"{color}\"/>"
+                    "<polyline fill=\"none\" stroke=\"{color}\" stroke-width=\"{}\"{dash} points=\"{poly}\"/>", style.line_width(1.8)
                 );
-            } else if run.len() > 1 {
-                if style.line != ChartLine::Points {
-                    let mut poly = String::new();
-                    for (i, &(x, y)) in run.iter().enumerate() {
-                        if i > 0 {
-                            poly.push(' ');
-                        }
-                        let _ = write!(poly, "{x:.1},{y:.1}");
-                    }
-                    let _ = write!(
-                        svg,
-                        "<polyline fill=\"none\" stroke=\"{color}\" stroke-width=\"{}\"{dash} points=\"{poly}\"/>", style.line_width(1.8)
-                    );
-                }
-                if options.markers || style.line == ChartLine::Points {
-                    let stride = if style.line == ChartLine::Points {
-                        1
-                    } else {
-                        (run.len() / 40).max(1)
-                    };
-                    for &(x, y) in run.iter().step_by(stride) {
-                        let _ = write!(
-                            svg,
-                            "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"2.4\" fill=\"{color}\"/>"
-                        );
-                    }
+            }
+            if legacy && run.len() == 1 {
+                write_chart_marker(&mut svg, ChartMarker::Circle, run[0], 3., color);
+            } else if let Some(marker) = marker {
+                let (skip, step) = if legacy {
+                    (0, style.marker_stride(run.len() / 40))
+                } else {
+                    ((stride - point_index % stride) % stride, stride)
+                };
+                for &point in run.iter().skip(skip).step_by(step) {
+                    write_chart_marker(&mut svg, marker, point, diameter / 2., color);
                 }
             }
+            point_index += run.len();
             run.clear();
         }
     }
@@ -936,6 +991,54 @@ fn print_pdf(html_content: &str, pdf_path: &Path, dir: &Path) -> Calc<()> {
 mod tests {
     use super::*;
     use crate::editing::{insert_region, ChartSpec, NewRegion, TextStyle};
+
+    #[test]
+    fn chart_markers_use_per_trace_shape_size_and_phase_across_gaps() {
+        let curves = Ok(vec![
+            (
+                "Измерения".into(),
+                vec![
+                    Some([0., 1.]),
+                    Some([1., 2.]),
+                    None,
+                    Some([2., 0.]),
+                    Some([3., 1.]),
+                    Some([4., 2.]),
+                ],
+            ),
+            ("Одиночная точка".into(), vec![Some([2., 1.])]),
+        ]);
+        let mut options = ChartOptions::default();
+        options.markers = true;
+        options.appearance.traces[0] = ChartTraceStyle {
+            line: ChartLine::Points,
+            marker: ChartMarker::Square,
+            marker_size: 14,
+            marker_every: 3,
+            color: Some([17, 22, 30]),
+            ..ChartTraceStyle::default()
+        };
+        options.appearance.traces[1].marker = ChartMarker::None;
+        let svg = render_chart_svg(&ChartReport {
+            curves: &curves,
+            options: &options,
+            is_polar: false,
+            title: "Измерения",
+        });
+        let document = roxmltree::Document::parse(&svg).unwrap();
+        let squares: Vec<_> = document
+            .descendants()
+            .filter(|node| node.has_tag_name("rect") && node.attribute("fill") == Some("#11161e"))
+            .collect();
+        assert_eq!(squares.len(), 3);
+        assert_eq!(squares[0].attribute("width"), Some("14.0"));
+        assert_eq!(squares[0].attribute("x"), Some("80.4")); // X = 0
+        assert_eq!(squares[1].attribute("width"), Some("14.0"));
+        assert_eq!(squares[1].attribute("x"), Some("460.8")); // X = 3
+        assert_eq!(squares[2].attribute("width"), Some("12.0")); // legend swatch
+        assert!(!svg.contains("<polyline"));
+        assert!(!svg.contains("<circle"));
+    }
 
     #[test]
     fn multipage_cyrillic_report_matches_preview_pages_and_embeds_svg_chart() {

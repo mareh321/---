@@ -3,11 +3,12 @@ use eframe::egui::{
 };
 use list_rs::{
     editing::{
-        AxisNumber, AxisPlacement, ChartAppearance, ChartLine, ChartOptions, ChartSpec,
-        LegendPlacement,
+        AxisNumber, AxisPlacement, ChartAppearance, ChartLine, ChartMarker, ChartOptions,
+        ChartSpec, ChartTraceStyle, LegendPlacement,
     },
     number, Calc,
 };
+use std::ops::RangeInclusive;
 
 pub type Curves = Vec<(String, Vec<Option<[f64; 2]>>)>;
 
@@ -276,7 +277,8 @@ impl Draft {
             ChartTab::Traces => {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.show_legend, "Показывать легенду");
-                    ui.checkbox(&mut self.markers, "Маркеры точек");
+                    ui.checkbox(&mut self.markers, "Маркеры точек")
+                        .on_hover_text("Показывать символы «Авто» на сплошных и штриховых линиях.");
                 });
                 ui.add_enabled_ui(self.show_legend, |ui| {
                     ui.horizontal_wrapped(|ui| {
@@ -345,6 +347,20 @@ impl Draft {
                                     trace.color = None;
                                 }
                             });
+                            ui.end_row();
+                        }
+                    });
+                ui.separator();
+                egui::Grid::new("chart_trace_markers")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for heading in ["Кривая", "Символ", "Размер", "Шаг"] {
+                            ui.strong(heading);
+                        }
+                        ui.end_row();
+                        for (i, trace) in self.appearance.traces.iter_mut().enumerate() {
+                            ui.label((i + 1).to_string());
+                            marker_fields(ui, i, trace);
                             ui.end_row();
                         }
                     });
@@ -501,6 +517,54 @@ impl Draft {
     }
 }
 
+fn marker_fields(ui: &mut egui::Ui, series: usize, trace: &mut ChartTraceStyle) {
+    let selected = ChartMarker::ALL
+        .iter()
+        .find(|(shape, _)| *shape == trace.marker)
+        .map_or("", |(_, name)| *name);
+    egui::ComboBox::from_id_salt(("trace_marker", series))
+        .selected_text(selected)
+        .show_ui(ui, |ui| {
+            for (shape, name) in ChartMarker::ALL {
+                ui.selectable_value(&mut trace.marker, shape, name);
+            }
+        });
+
+    let enabled = trace.marker != ChartMarker::None;
+    // Represent Auto immediately below the first numeric size, so a single step selects 3.
+    let mut size = u16::from(trace.marker_size.max(2));
+    if ui
+        .add_enabled(enabled, automatic_drag(&mut size, 2..=16))
+        .on_hover_text("Размер символа в пунктах. 0 — стандартный размер.")
+        .changed()
+    {
+        trace.marker_size = if size == 2 { 0 } else { size as u8 };
+    }
+    ui.add_enabled(enabled, automatic_drag(&mut trace.marker_every, 0..=1000))
+        .on_hover_text("Ставить символ через указанное число точек. 0 — автоматический шаг.");
+}
+
+fn automatic_drag(value: &mut u16, range: RangeInclusive<u16>) -> egui::DragValue<'_> {
+    let automatic = f64::from(*range.start());
+    egui::DragValue::new(value)
+        .range(range)
+        .custom_formatter(move |value, _| {
+            if value == automatic {
+                "Авто".into()
+            } else {
+                format!("{value:.0}")
+            }
+        })
+        .custom_parser(move |text| {
+            let text = text.trim();
+            if text.to_lowercase() == "авто" {
+                Some(automatic)
+            } else {
+                text.parse().ok()
+            }
+        })
+}
+
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String, width: f32) {
     ui.horizontal(|ui| {
         ui.label(label);
@@ -526,6 +590,49 @@ fn map_coord(v: f64, log: bool) -> Option<f64> {
         (v > 0. && v.is_finite()).then(|| v.log10())
     } else {
         v.is_finite().then_some(v)
+    }
+}
+
+fn paint_marker(
+    painter: &Painter,
+    center: Pos2,
+    diameter: f32,
+    marker: ChartMarker,
+    color: Color32,
+) {
+    let r = diameter / 2.;
+    let top = center - vec2(0., r);
+    let bottom = center + vec2(0., r);
+    let upper_left = center - vec2(r, r);
+    let lower_right = center + vec2(r, r);
+    let lower_left = center + vec2(-r, r);
+    match marker {
+        ChartMarker::Circle => {
+            painter.circle_filled(center, r, color);
+        }
+        ChartMarker::Square => {
+            painter.rect_filled(Rect::from_min_max(upper_left, lower_right), 0., color);
+        }
+        ChartMarker::Diamond => {
+            painter.add(Shape::convex_polygon(
+                vec![top, center + vec2(r, 0.), bottom, center - vec2(r, 0.)],
+                color,
+                Stroke::NONE,
+            ));
+        }
+        ChartMarker::Triangle => {
+            painter.add(Shape::convex_polygon(
+                vec![top, lower_right, lower_left],
+                color,
+                Stroke::NONE,
+            ));
+        }
+        ChartMarker::Cross => {
+            let stroke = Stroke::new(1.5_f32, color);
+            painter.line_segment([upper_left, lower_right], stroke);
+            painter.line_segment([center + vec2(r, -r), lower_left], stroke);
+        }
+        ChartMarker::Auto | ChartMarker::None => {}
     }
 }
 
@@ -799,7 +906,7 @@ pub fn draw(
     };
     let mouse = hover.filter(|&pos| grid.contains(pos));
     let snap = mouse.filter(|_| !matches!(trace_mode, TraceMode::Cursor));
-    let default_style = list_rs::editing::ChartTraceStyle::default();
+    let default_style = ChartTraceStyle::default();
     for (series, (_, points)) in curves.iter().enumerate() {
         let style = appearance.traces.get(series).unwrap_or(&default_style);
         let color = style
@@ -807,13 +914,23 @@ pub fn draw(
             .map(|[r, g, b]| Color32::from_rgb(r, g, b))
             .unwrap_or(COLORS[series % COLORS.len()]);
         let mut run = Vec::new();
+        let mut markers = Vec::new();
+        let marker = style.marker_shape(options.markers);
+        let diameter = style.marker_diameter(5.6);
+        let marker_bounds = grid.expand(diameter / 2. + 1.);
         let valid_count = points.iter().flatten().count();
-        let marker_step = (valid_count / 60).max(1);
+        let marker_step = style.marker_stride((valid_count / 60).max(1));
+        let legacy_marker =
+            style.marker == ChartMarker::Auto && style.marker_size == 0 && style.marker_every == 0;
         let mut drawn_pts = 0usize;
         for point in points.iter().copied().chain(std::iter::once(None)) {
             if let Some(values) = point {
                 if let Some(pixel) = project(values) {
-                    if let Some(mouse) = snap.filter(|_| grid.contains(pixel)) {
+                    let point_marker = marker.filter(|_| drawn_pts % marker_step == 0);
+                    if let Some(mouse) = snap.filter(|_| {
+                        grid.contains(pixel)
+                            && (style.line != ChartLine::Points || point_marker.is_some())
+                    }) {
                         let distance = mouse.distance_sq(pixel);
                         if distance < best {
                             best = distance;
@@ -827,10 +944,8 @@ pub fn draw(
                             ));
                         }
                     }
-                    if style.line == ChartLine::Points
-                        || (options.markers && drawn_pts % marker_step == 0)
-                    {
-                        canvas.circle_filled(pixel, 2.8, color);
+                    if let Some(shape) = point_marker.filter(|_| marker_bounds.contains(pixel)) {
+                        markers.push((pixel, diameter, shape));
                     }
                     drawn_pts += 1;
                     if style.line != ChartLine::Points {
@@ -841,7 +956,12 @@ pub fn draw(
             }
             if !run.is_empty() {
                 if run.len() == 1 {
-                    canvas.circle_filled(run[0], 3., color);
+                    if legacy_marker
+                        && (marker.is_none() || (drawn_pts - 1) % marker_step != 0)
+                        && grid.expand(3.).contains(run[0])
+                    {
+                        markers.push((run[0], 6., ChartMarker::Circle));
+                    }
                     run.clear();
                 } else if style.line == ChartLine::Dashed {
                     canvas.extend(Shape::dashed_line(
@@ -858,6 +978,9 @@ pub fn draw(
                     ));
                 }
             }
+        }
+        for (pixel, diameter, shape) in markers {
+            paint_marker(&canvas, pixel, diameter, shape, color);
         }
     }
 
@@ -961,6 +1084,7 @@ pub fn draw(
                 &style.label
             };
             let legend = Rect::from_min_size(label_at, vec2(width, row_height));
+            let swatch_painter = painter.with_clip_rect(legend);
             let swatch_y = label_at.y + 6.;
             let swatch = [
                 Pos2::new(label_at.x, swatch_y),
@@ -968,15 +1092,24 @@ pub fn draw(
             ];
             let stroke = Stroke::new(style.line_width(2.), color);
             match style.line {
-                ChartLine::Points => {
-                    painter.circle_filled(swatch[0].lerp(swatch[1], 0.5), 2.8, color);
+                ChartLine::Points => {}
+                ChartLine::Dashed => {
+                    swatch_painter.extend(Shape::dashed_line(&swatch, stroke, 4., 3.));
                 }
-                ChartLine::Dashed => painter.extend(Shape::dashed_line(&swatch, stroke, 4., 3.)),
                 ChartLine::Solid => {
-                    painter.line_segment(swatch, stroke);
+                    swatch_painter.line_segment(swatch, stroke);
                 }
             }
-            painter.with_clip_rect(legend).text(
+            if let Some(marker) = style.marker_shape(options.markers) {
+                paint_marker(
+                    &swatch_painter,
+                    swatch[0].lerp(swatch[1], 0.5),
+                    style.marker_diameter(5.6).min(12.),
+                    marker,
+                    color,
+                );
+            }
+            swatch_painter.text(
                 label_at + vec2(16., 0.),
                 Align2::LEFT_TOP,
                 label,
@@ -991,6 +1124,95 @@ pub fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chart_paints_trace_markers_with_independent_size_and_stride() {
+        let ctx = egui::Context::default();
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(400., 300.));
+        let square_color = Color32::from_rgb(20, 40, 60);
+        let mut options = ChartOptions {
+            log_x: true,
+            x_min: Some(1.),
+            x_max: Some(256.),
+            y_min: Some(0.),
+            y_max: Some(3.),
+            ..Default::default()
+        };
+        options.appearance.traces[0] = ChartTraceStyle {
+            line: ChartLine::Points,
+            marker: ChartMarker::Square,
+            marker_size: 16,
+            marker_every: 2,
+            color: Some([20, 40, 60]),
+            ..Default::default()
+        };
+        options.appearance.traces[1] = ChartTraceStyle {
+            marker: ChartMarker::Circle,
+            marker_size: 8,
+            marker_every: 2,
+            ..Default::default()
+        };
+        options.appearance.traces[2].marker = ChartMarker::None;
+        let curves = Ok(vec![
+            (
+                "Квадраты".into(),
+                vec![
+                    Some([1., 1.]),
+                    Some([2., 1.]),
+                    None,
+                    Some([-1., 1.]),
+                    Some([4., 1.]),
+                    Some([8., 1.]),
+                    Some([16., 1.]),
+                    Some([4096., 1.]),
+                ],
+            ),
+            ("Круги".into(), vec![Some([2., 2.]), Some([4., 2.])]),
+            ("Скрытый символ".into(), vec![Some([32., 0.5])]),
+        ]);
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            draw(
+                &ctx.layer_painter(egui::LayerId::background()),
+                rect,
+                &curves,
+                &options,
+                false,
+                1.,
+                None,
+                false,
+                TraceMode::Hover,
+            );
+        });
+        let grid = Rect::from_min_max(egui::pos2(56., 32.), egui::pos2(385., 267.));
+        let squares: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                Shape::Rect(shape) if shape.fill == square_color => {
+                    Some((clipped.clip_rect, shape.rect))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(squares.len(), 4);
+        for (square, expected_x) in squares.iter().zip([56., 138.25, 220.5]) {
+            assert_eq!(square.0, grid);
+            assert_eq!(square.1.center().x, expected_x);
+            assert_eq!(square.1.size(), vec2(16., 16.));
+        }
+        assert_eq!(squares[3].1.size(), vec2(12., 12.));
+        let circles: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                Shape::Circle(shape) => Some((clipped.clip_rect, shape.fill, shape.radius)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(circles.len(), 2);
+        assert_eq!(circles[0], (grid, COLORS[1], 4.));
+        assert_eq!((circles[1].1, circles[1].2), (COLORS[1], 4.));
+    }
 
     #[test]
     fn chart_trace_snaps_across_series_and_inverts_the_zoomed_log_scale() {
