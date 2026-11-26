@@ -1074,7 +1074,12 @@ mod tests {
 
         let plot_idx = pages[1].region_indices[0];
         let curves = sheet.chart_curves(plot_idx, &spec);
-        let opts = ChartOptions::default();
+        let mut opts = ChartOptions {
+            x_min: Some(-1000.),
+            x_max: Some(1000.),
+            ..ChartOptions::default()
+        };
+        opts.appearance.exponential_threshold = Some(3);
         let mut charts = HashMap::new();
         charts.insert(
             plot_idx,
@@ -1092,6 +1097,8 @@ mod tests {
         assert!(html.contains("Стр. 2 из 2"));
         assert!(html.contains("<svg class=\"chart-svg\""));
         assert!(html.contains("<polyline"));
+        assert!(html.contains(">-1e3</text>"));
+        assert!(html.contains(">1e3</text>"));
     }
 
     #[test]

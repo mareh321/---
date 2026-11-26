@@ -1136,6 +1136,8 @@ pub struct ChartAppearance {
     pub number: AxisNumber,
     pub digits: u8,
     pub trailing_zeros: bool,
+    /// General format uses scientific notation for magnitudes at least 10 to this power.
+    pub exponential_threshold: Option<u8>,
     pub title: String,
     pub title_below: bool,
     pub legend_placement: LegendPlacement,
@@ -1152,6 +1154,7 @@ impl Default for ChartAppearance {
             number: AxisNumber::General,
             digits: 3,
             trailing_zeros: false,
+            exponential_threshold: None,
             title: String::new(),
             title_below: false,
             legend_placement: LegendPlacement::Above,
@@ -1161,6 +1164,8 @@ impl Default for ChartAppearance {
 }
 
 impl ChartAppearance {
+    pub const MAX_EXPONENTIAL_THRESHOLD: u8 = 15;
+
     pub fn tick(&self, n: f64) -> String {
         let digits = usize::from(self.digits.min(12));
         let fixed = |value: f64, digits: usize| {
@@ -1185,10 +1190,21 @@ impl ChartAppearance {
             text
         };
         match self.number {
-            AxisNumber::General if n.abs() >= 10_000. || (n != 0. && n.abs() < 0.001) => {
-                format!("{n:.1e}")
+            AxisNumber::General => {
+                let cutoff = self.exponential_threshold.map_or(10_000., |power| {
+                    10_f64.powi(i32::from(power.min(Self::MAX_EXPONENTIAL_THRESHOLD)))
+                });
+                if n.abs() >= cutoff || (n != 0. && n.abs() < 0.001) {
+                    if self.exponential_threshold.is_some() {
+                        scientific()
+                    } else {
+                        format!("{n:.1e}")
+                    }
+                } else {
+                    fixed(n, digits)
+                }
             }
-            AxisNumber::General | AxisNumber::Decimal => fixed(n, digits),
+            AxisNumber::Decimal => fixed(n, digits),
             AxisNumber::Scientific => scientific(),
             AxisNumber::Engineering if n != 0. && n.is_normal() => {
                 let power = (n.abs().log10() / 3.).floor() as i32 * 3;
@@ -1245,6 +1261,12 @@ impl ChartAppearance {
         }
         if self.trailing_zeros {
             out.push_str(" axis-zeros=\"true\"");
+        }
+        if let Some(power) = self.exponential_threshold {
+            out.push_str(&format!(
+                " axis-exponential-threshold=\"{}\"",
+                power.min(Self::MAX_EXPONENTIAL_THRESHOLD)
+            ));
         }
         if !self.title.trim().is_empty() {
             out.push_str(&format!(" title=\"{}\"", escape(self.title.trim())));
@@ -1315,6 +1337,8 @@ impl ChartAppearance {
                 .unwrap_or_default(),
             digits: parse("axis-digits").unwrap_or(3).min(12),
             trailing_zeros: node.attribute("axis-zeros") == Some("true"),
+            exponential_threshold: parse("axis-exponential-threshold")
+                .map(|power| power.min(Self::MAX_EXPONENTIAL_THRESHOLD)),
             title: node.attribute("title").unwrap_or_default().into(),
             title_below: node.attribute("title-below") == Some("true"),
             legend_placement: node
@@ -3449,6 +3473,112 @@ pub fn set_page_settings(xml: &str, settings: &PageSettings) -> Calc<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn general_axis_format_uses_the_configured_cutoff_and_precision() {
+        let mut appearance = ChartAppearance {
+            digits: 2,
+            trailing_zeros: true,
+            exponential_threshold: Some(3),
+            ..ChartAppearance::default()
+        };
+        assert_eq!(appearance.tick(999.), "999.00");
+        assert_eq!(appearance.tick(1000.), "1.00e3");
+        assert_eq!(appearance.tick(-1000.), "-1.00e3");
+        assert_eq!(appearance.tick(0.), "0.00");
+        assert_eq!(appearance.tick(0.000125), "1.25e-4");
+        assert_eq!(appearance.tick(-0.0001), "-1.00e-4");
+        appearance.trailing_zeros = false;
+        assert_eq!(appearance.tick(1000.), "1e3");
+        appearance.digits = 4;
+        assert_eq!(appearance.tick(0.001), "0.001");
+        appearance.exponential_threshold = Some(0);
+        assert_eq!(appearance.tick(1.), "1e0");
+        assert_eq!(appearance.tick(0.5), "0.5");
+        assert_eq!(appearance.tick(0.), "0");
+    }
+
+    #[test]
+    fn axis_cutoff_preserves_legacy_output_and_other_formats() {
+        let legacy = ChartAppearance {
+            digits: 2,
+            trailing_zeros: true,
+            ..ChartAppearance::default()
+        };
+        assert_eq!(legacy.tick(1000.), "1000.00");
+        assert_eq!(legacy.tick(10_000.), "1.0e4");
+        assert_eq!(legacy.tick(-10_000.), "-1.0e4");
+        assert_eq!(legacy.tick(0.000126), "1.3e-4");
+        for format in [
+            AxisNumber::Decimal,
+            AxisNumber::Scientific,
+            AxisNumber::Engineering,
+            AxisNumber::Fraction,
+        ] {
+            let appearance = ChartAppearance {
+                number: format,
+                ..legacy.clone()
+            };
+            let configured = ChartAppearance {
+                exponential_threshold: Some(0),
+                ..appearance.clone()
+            };
+            for value in [-10_000., 0., 0.000125, 2.5] {
+                assert_eq!(configured.tick(value), appearance.tick(value));
+            }
+        }
+    }
+
+    #[test]
+    fn axis_cutoff_roundtrips_in_chart_and_worksheet_defaults() {
+        let blank = include_str!("../examples/blank.xmcd");
+        let spec = ChartSpec::Function {
+            expression: "sin(x)".into(),
+            from: 0.,
+            to: 5.,
+        };
+        let (xml, id) = insert_region(blank, 12., 20., NewRegion::Chart(&spec)).unwrap();
+        assert_eq!(
+            chart_options(&xml).unwrap()[&id]
+                .appearance
+                .exponential_threshold,
+            None
+        );
+        assert!(!xml.contains("axis-exponential-threshold"));
+
+        let mut options = ChartOptions::default();
+        options.appearance.exponential_threshold = Some(0);
+        let xml = replace_chart_with_options(&xml, &id, &spec, &options).unwrap();
+        let mut defaults = options.clone();
+        defaults.appearance.exponential_threshold = Some(12);
+        let xml = set_chart_defaults(&xml, &defaults).unwrap();
+        let xml = export_xml(&xml, true).unwrap();
+        assert_eq!(chart_options(&xml).unwrap()[&id], options);
+        assert_eq!(chart_defaults(&xml).unwrap(), Some(defaults));
+
+        let malformed = xml.replace(
+            r#"axis-exponential-threshold="0""#,
+            r#"axis-exponential-threshold="wrong""#,
+        );
+        assert_eq!(
+            chart_options(&malformed).unwrap()[&id]
+                .appearance
+                .exponential_threshold,
+            None
+        );
+        let out_of_range = xml.replace(
+            r#"axis-exponential-threshold="12""#,
+            r#"axis-exponential-threshold="99""#,
+        );
+        assert_eq!(
+            chart_defaults(&out_of_range)
+                .unwrap()
+                .unwrap()
+                .appearance
+                .exponential_threshold,
+            Some(ChartAppearance::MAX_EXPONENTIAL_THRESHOLD)
+        );
+    }
 
     #[test]
     fn chart_marker_settings_roundtrip_in_chart_and_worksheet_defaults() {

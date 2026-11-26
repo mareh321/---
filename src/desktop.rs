@@ -6300,6 +6300,7 @@ mod tests {
         options.appearance.number = AxisNumber::Decimal;
         options.appearance.digits = 2;
         options.appearance.trailing_zeros = true;
+        options.appearance.exponential_threshold = Some(3);
         options.appearance.traces[0].color = Some([1, 35, 69]);
         options.appearance.traces[0].line = ChartLine::Dashed;
         options.appearance.traces[0].width = 5;
@@ -6349,6 +6350,7 @@ mod tests {
             [Some(0.); 2]
         );
         assert_eq!(options.appearance.tick(1.5), "1.50");
+        assert_eq!(options.appearance.tick(1000.), "1000.00");
         app.apply_tool_action(tool_ribbon::ToolAction::ChartXY);
         let new_insert = app.insertion.take().unwrap();
         let DraftRegion::Chart(new_draft) = new_insert.draft else {

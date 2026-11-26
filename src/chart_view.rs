@@ -226,7 +226,7 @@ impl Draft {
                     "Параметры строк относятся к кривым в порядке ввода на вкладке «Данные»."
                 }
                 ChartTab::Numbers => {
-                    "Формат меняет подписи делений. Дроби подбираются со знаменателем до 100."
+                    "В общем формате порог n включает экспоненциальную запись от 10^n по модулю. Для дробей знаменатель до 100."
                 }
                 ChartTab::Labels => "Оставьте подпись пустой, чтобы скрыть её.",
                 ChartTab::Defaults => {
@@ -377,6 +377,25 @@ impl Draft {
                     &mut self.appearance.trailing_zeros,
                     "Показывать конечные нули",
                 );
+                let threshold = &mut self.appearance.exponential_threshold;
+                ui.add_enabled_ui(self.appearance.number == AxisNumber::General, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Порог экспоненциальной записи")
+                            .on_hover_text("Общий формат использует эту запись при |число| ≥ 10^n. При n = 3 порог равен 1000. Правило для малых чисел сохраняется.");
+                        let mut automatic = threshold.is_none();
+                        ui.checkbox(&mut automatic, "Авто")
+                            .on_hover_text("Использовать обычный порог общего формата.");
+                        let mut exponent = threshold.unwrap_or(4);
+                        ui.add_enabled(
+                            !automatic,
+                            egui::DragValue::new(&mut exponent)
+                                .range(0..=ChartAppearance::MAX_EXPONENTIAL_THRESHOLD)
+                                .prefix("10^"),
+                        )
+                        .on_hover_text("Целый показатель степени n. Например, 3 для 1000.");
+                        *threshold = (!automatic).then_some(exponent);
+                    });
+                });
             }
             ChartTab::Labels => {
                 field(ui, "Заголовок", &mut self.appearance.title, 260.);
