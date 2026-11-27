@@ -25,6 +25,94 @@ pub struct TraceSample {
     pub coordinates: [f64; 2],
     pub series: Option<usize>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Viewport {
+    pub factor: f64,
+    /// Visible X/Y intervals before the factor is applied, in linear or log10 coordinates.
+    pub frame: Option<[[f64; 2]; 2]>,
+}
+
+impl Default for Viewport {
+    fn default() -> Self {
+        Self {
+            factor: 1.,
+            frame: None,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ChartRender {
+    pub sample: Option<TraceSample>,
+    pub transform: Option<PlotTransform>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PlotTransform {
+    pub grid: Rect,
+    bounds: [[f64; 2]; 2],
+    logarithmic: [bool; 2],
+}
+
+impl PlotTransform {
+    fn project(&self, [x, y]: [f64; 2]) -> Option<Pos2> {
+        let mx = map_coord(x, self.logarithmic[0])?;
+        let my = map_coord(y, self.logarithmic[1])?;
+        let [[xmin, xmax], [ymin, ymax]] = self.bounds;
+        let grid = self.grid;
+        let pixel = Pos2::new(
+            grid.left() + ((mx - xmin) / (xmax - xmin)) as f32 * grid.width(),
+            grid.bottom() - ((my - ymin) / (ymax - ymin)) as f32 * grid.height(),
+        );
+        pixel.is_finite().then_some(pixel)
+    }
+
+    fn mapped_at(&self, pixel: Pos2) -> [f64; 2] {
+        let grid = self.grid;
+        let fractions = [
+            f64::from((pixel.x - grid.left()) / grid.width()),
+            f64::from((grid.bottom() - pixel.y) / grid.height()),
+        ];
+        std::array::from_fn(|i| {
+            let [min, max] = self.bounds[i];
+            let amount = fractions[i];
+            (1. - amount) * min + amount * max
+        })
+    }
+
+    fn data_at(&self, pixel: Pos2) -> [f64; 2] {
+        let mapped = self.mapped_at(pixel);
+        std::array::from_fn(|i| unmap_coord(mapped[i], self.logarithmic[i]))
+    }
+
+    /// Returns sorted X/Y intervals in the same coordinates as a viewport frame.
+    pub fn selection(&self, start: Pos2, end: Pos2) -> Option<[[f64; 2]; 2]> {
+        if !start.is_finite() || !end.is_finite() || !self.grid.contains(start) {
+            return None;
+        }
+        let selected = Rect::from_two_pos(start, self.grid.clamp(end));
+        if selected.width() < 4. || selected.height() < 4. {
+            return None;
+        }
+        let [xmin, ymin] = self.mapped_at(selected.left_bottom());
+        let [xmax, ymax] = self.mapped_at(selected.right_top());
+        let bounds = [[xmin, xmax], [ymin, ymax]];
+        valid_bounds(bounds).then_some(bounds)
+    }
+
+    pub fn data_bounds(&self) -> [[f64; 2]; 2] {
+        std::array::from_fn(|i| self.bounds[i].map(|v| unmap_coord(v, self.logarithmic[i])))
+    }
+}
+
+fn valid_bounds(bounds: [[f64; 2]; 2]) -> bool {
+    bounds.into_iter().all(|[min, max]| {
+        let span = max - min;
+        span.is_finite() && span > 0.
+    })
+}
+
 const COLORS: [Color32; 4] = [
     Color32::from_rgb(0, 111, 105),
     Color32::from_rgb(156, 65, 31),
@@ -670,11 +758,11 @@ pub fn draw(
     data: &Calc<Curves>,
     options: &ChartOptions,
     is_polar: bool,
-    zoom: f64,
+    viewport: Viewport,
     hover: Option<Pos2>,
     selected: bool,
     trace_mode: TraceMode,
-) -> Option<TraceSample> {
+) -> ChartRender {
     let line = Color32::from_rgb(218, 228, 232);
     let ink = Color32::from_rgb(47, 70, 81);
     let painter = painter.with_clip_rect(rect);
@@ -693,7 +781,7 @@ pub fn draw(
             FontId::proportional(12.),
             COLORS[1],
         );
-        return None;
+        return ChartRender::default();
     };
     let appearance = &options.appearance;
     let title = appearance.title.trim();
@@ -725,8 +813,8 @@ pub fn draw(
         rect.min + vec2(left_pad, top_pad),
         rect.max - vec2(15., bottom_pad),
     );
-    if grid.width() < 20. || grid.height() < 15. {
-        return None;
+    if !grid.is_finite() || grid.width() < 20. || grid.height() < 15. {
+        return ChartRender::default();
     }
 
     let log_x = !is_polar && options.log_x;
@@ -752,7 +840,7 @@ pub fn draw(
             FontId::proportional(12.),
             COLORS[1],
         );
-        return None;
+        return ChartRender::default();
     }
     for (axis, (manual_min, manual_max, is_log)) in bounds.iter_mut().zip([
         (options.x_min, options.x_max, log_x),
@@ -780,40 +868,52 @@ pub fn draw(
         }
     }
 
-    // Apply equal scale (1:1) when requested or in polar mode (without log axes)
-    if (options.equal_scale || is_polar) && !log_x && !log_y {
-        let cx = 0.5 * (bounds[0][0] + bounds[0][1]);
-        let cy = 0.5 * (bounds[1][0] + bounds[1][1]);
-        let half_x = 0.5 * (bounds[0][1] - bounds[0][0]);
-        let half_y = 0.5 * (bounds[1][1] - bounds[1][0]);
-        let px_per_x = f64::from(grid.width()) / (2. * half_x);
-        let px_per_y = f64::from(grid.height()) / (2. * half_y);
-        let scale = px_per_x.min(px_per_y);
-        let new_hx = f64::from(grid.width()) / (2. * scale);
-        let new_hy = f64::from(grid.height()) / (2. * scale);
-        bounds[0] = [cx - new_hx, cx + new_hx];
-        bounds[1] = [cy - new_hy, cy + new_hy];
+    if let Some(frame) = viewport.frame.filter(|&frame| valid_bounds(frame)) {
+        bounds = frame;
+    }
+    if !valid_bounds(bounds) {
+        return ChartRender::default();
     }
 
-    // Apply interactive zoom around center
-    let zoom = zoom.clamp(0.25, 16.0);
+    // Apply equal scale (1:1) when requested or in polar mode (without log axes).
+    if (options.equal_scale || is_polar) && !log_x && !log_y {
+        let pixels = [f64::from(grid.width()), f64::from(grid.height())];
+        let [units_x, units_y] = std::array::from_fn(|i| (bounds[i][1] - bounds[i][0]) / pixels[i]);
+        let units_per_pixel = units_x.max(units_y);
+        bounds = std::array::from_fn(|i| {
+            let [min, max] = bounds[i];
+            let center = min + (max - min) * 0.5;
+            let half_span = (0.5 * pixels[i]) * units_per_pixel;
+            [center - half_span, center + half_span]
+        });
+        if !valid_bounds(bounds) {
+            return ChartRender::default();
+        }
+    }
+
+    // Apply interactive zoom around the center of the current frame.
+    let zoom = if viewport.factor.is_finite() {
+        viewport.factor.clamp(0.25, 16.0)
+    } else {
+        1.
+    };
     if (zoom - 1.0).abs() > 1e-6 {
-        for axis in &mut bounds {
-            let center = 0.5 * (axis[0] + axis[1]);
-            let half = 0.5 * (axis[1] - axis[0]) / zoom;
-            axis[0] = center - half;
-            axis[1] = center + half;
+        let scaled = bounds.map(|[min, max]| {
+            let half_span = (max - min) * 0.5;
+            let center = min + half_span;
+            let half = half_span / zoom;
+            [center - half, center + half]
+        });
+        if valid_bounds(scaled) {
+            bounds = scaled;
         }
     }
 
     let [[xmin, xmax], [ymin, ymax]] = bounds;
-    let project = |[x, y]: [f64; 2]| -> Option<Pos2> {
-        let mx = map_coord(x, log_x)?;
-        let my = map_coord(y, log_y)?;
-        Some(Pos2::new(
-            grid.left() + ((mx - xmin) / (xmax - xmin)) as f32 * grid.width(),
-            grid.bottom() - ((my - ymin) / (ymax - ymin)) as f32 * grid.height(),
-        ))
+    let transform = PlotTransform {
+        grid,
+        bounds,
+        logarithmic: [log_x, log_y],
     };
 
     for axis in 0..2 {
@@ -884,7 +984,7 @@ pub fn draw(
 
     let canvas = painter.with_clip_rect(grid);
     if is_polar {
-        if let Some(origin) = project([0., 0.]) {
+        if let Some(origin) = transform.project([0., 0.]) {
             let max_r = xmax.abs().max(xmin.abs()).max(ymax.abs()).max(ymin.abs());
             let px_per_unit = grid.width() / (xmax - xmin) as f32;
             for k in 1..=4 {
@@ -944,7 +1044,7 @@ pub fn draw(
         let mut drawn_pts = 0usize;
         for point in points.iter().copied().chain(std::iter::once(None)) {
             if let Some(values) = point {
-                if let Some(pixel) = project(values) {
+                if let Some(pixel) = transform.project(values) {
                     let point_marker = marker.filter(|_| drawn_pts % marker_step == 0);
                     if let Some(mouse) = snap.filter(|_| {
                         grid.contains(pixel)
@@ -1004,15 +1104,10 @@ pub fn draw(
     }
 
     if let Some(mouse) = mouse.filter(|_| matches!(trace_mode, TraceMode::Cursor)) {
-        let x_ratio = f64::from((mouse.x - grid.left()) / grid.width());
-        let y_ratio = f64::from((grid.bottom() - mouse.y) / grid.height());
         closest = Some((
             mouse,
             TraceSample {
-                coordinates: [
-                    unmap_coord(xmin + (xmax - xmin) * x_ratio, log_x),
-                    unmap_coord(ymin + (ymax - ymin) * y_ratio, log_y),
-                ],
+                coordinates: transform.data_at(mouse),
                 series: None,
             },
             ink,
@@ -1137,7 +1232,10 @@ pub fn draw(
             );
         }
     }
-    closest.map(|(_, sample, _)| sample)
+    ChartRender {
+        sample: closest.map(|(_, sample, _)| sample),
+        transform: Some(transform),
+    }
 }
 
 #[cfg(test)]
@@ -1196,7 +1294,7 @@ mod tests {
                 &curves,
                 &options,
                 false,
-                1.,
+                Viewport::default(),
                 None,
                 false,
                 TraceMode::Hover,
@@ -1252,6 +1350,10 @@ mod tests {
                 ("a".into(), vec![Some([1., 1.]), None, Some([1.0e8, 5.])]),
                 ("b".into(), vec![Some([-1., 5.]), Some([31.6, 5.])]),
             ]);
+            let viewport = Viewport {
+                factor: 2.,
+                ..Viewport::default()
+            };
             let center = Pos2::new(220.5, 140.5);
             let snap = draw(
                 &painter,
@@ -1259,11 +1361,12 @@ mod tests {
                 &curves,
                 &options,
                 false,
-                2.,
+                viewport,
                 Some(center),
                 false,
                 TraceMode::Data,
             )
+            .sample
             .unwrap();
             assert_eq!(snap.series, Some(1));
             assert_eq!(snap.coordinates, [31.6, 5.]);
@@ -1273,11 +1376,12 @@ mod tests {
                 &curves,
                 &options,
                 false,
-                2.,
+                viewport,
                 Some(Pos2::new(56. + (385. - 56.) / 4., center.y)),
                 false,
                 TraceMode::Cursor,
             )
+            .sample
             .unwrap();
             assert!(cursor.series.is_none());
             assert!((cursor.coordinates[0] - 10_f64.powf(1.125)).abs() < 1e-10);
@@ -1288,12 +1392,162 @@ mod tests {
                 &curves,
                 &options,
                 false,
-                2.,
+                viewport,
                 Some(Pos2::new(20., center.y)),
                 false,
                 TraceMode::Data
             )
+            .sample
             .is_none());
+        });
+    }
+
+    #[test]
+    fn chart_zoom_rectangle_clips_and_normalizes_then_zooms_around_its_center() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let painter = ctx.layer_painter(egui::LayerId::background());
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(471., 247.));
+            let options = ChartOptions {
+                show_legend: false,
+                x_min: Some(0.),
+                x_max: Some(8.),
+                y_min: Some(-2.),
+                y_max: Some(2.),
+                ..Default::default()
+            };
+            let curves = Ok(vec![(
+                "Линия".into(),
+                vec![Some([0., -2.]), Some([8., 2.])],
+            )]);
+            let render = |viewport| {
+                draw(
+                    &painter,
+                    rect,
+                    &curves,
+                    &options,
+                    false,
+                    viewport,
+                    None,
+                    false,
+                    TraceMode::Hover,
+                )
+                .transform
+                .unwrap()
+            };
+            let base = render(Viewport::default());
+            assert_eq!(base.data_bounds(), [[0., 8.], [-2., 2.]]);
+            let upper_right = base.grid.left_top() + vec2(300., 50.);
+            let lower_left = base.grid.left_bottom();
+            let drag_end = lower_left + vec2(-40., 60.);
+            let frame = base.selection(upper_right, drag_end);
+            assert_eq!(frame, Some([[0., 6.], [-2., 1.]]));
+            assert_eq!(base.selection(lower_left, upper_right), frame);
+            assert_eq!(base.selection(drag_end, upper_right), None);
+            assert_eq!(
+                base.selection(lower_left, lower_left + vec2(3., -30.)),
+                None
+            );
+            assert_eq!(base.selection(upper_right, Pos2::new(f32::NAN, 0.)), None);
+
+            let zoomed = render(Viewport { factor: 2., frame });
+            assert_eq!(zoomed.data_bounds(), [[1.5, 4.5], [-1.25, 0.25]]);
+            let repeated = zoomed.selection(
+                zoomed.grid.left_top() + vec2(100., 50.),
+                zoomed.grid.right_bottom() - vec2(100., 50.),
+            );
+            assert_eq!(repeated, Some([[2.25, 3.75], [-0.875, -0.125]]));
+        });
+    }
+
+    #[test]
+    fn chart_zoom_rectangle_reuses_mapped_coordinates_on_log_axes() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let painter = ctx.layer_painter(egui::LayerId::background());
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(471., 247.));
+            let options = ChartOptions {
+                show_legend: false,
+                log_x: true,
+                log_y: true,
+                x_min: Some(1.),
+                x_max: Some(10_000.),
+                y_min: Some(0.01),
+                y_max: Some(100.),
+                ..Default::default()
+            };
+            let curves = Ok(vec![(
+                "Линия".into(),
+                vec![Some([1., 0.01]), Some([10_000., 100.])],
+            )]);
+            let render = |viewport, hover| {
+                draw(
+                    &painter,
+                    rect,
+                    &curves,
+                    &options,
+                    false,
+                    viewport,
+                    hover,
+                    false,
+                    TraceMode::Cursor,
+                )
+            };
+            let base = render(Viewport::default(), None).transform.unwrap();
+            let frame = base.selection(
+                base.grid.left_top() + vec2(100., 50.),
+                base.grid.right_bottom() - vec2(100., 50.),
+            );
+            assert_eq!(frame, Some([[1., 3.], [-1., 1.]]));
+            let zoomed = render(Viewport { factor: 1., frame }, Some(base.grid.center()));
+            let bounds = zoomed.transform.unwrap().data_bounds();
+            assert_eq!(bounds[0], [10., 1000.]);
+            assert!((bounds[1][0] - 0.1).abs() < 1e-12);
+            assert_eq!(bounds[1][1], 10.);
+            assert_eq!(zoomed.sample.unwrap().coordinates, [100., 1.]);
+        });
+    }
+
+    #[test]
+    fn chart_zoom_rectangle_keeps_equal_scale_and_rejects_invalid_frames() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let painter = ctx.layer_painter(egui::LayerId::background());
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(471., 247.));
+            let curves = Ok(vec![("Линия".into(), vec![Some([0., 0.]), Some([8., 8.])])]);
+            for is_polar in [false, true] {
+                let options = ChartOptions {
+                    show_legend: false,
+                    equal_scale: !is_polar,
+                    ..Default::default()
+                };
+                let render = |viewport| {
+                    draw(
+                        &painter,
+                        rect,
+                        &curves,
+                        &options,
+                        is_polar,
+                        viewport,
+                        None,
+                        false,
+                        TraceMode::Hover,
+                    )
+                    .transform
+                    .unwrap()
+                };
+                let zoomed = render(Viewport {
+                    factor: 1.,
+                    frame: Some([[3., 5.], [3., 5.]]),
+                });
+                assert_eq!(zoomed.data_bounds(), [[2., 6.], [3., 5.]]);
+                let baseline = render(Viewport::default());
+                let invalid = render(Viewport {
+                    factor: f64::NAN,
+                    frame: Some([[3., 3.], [f64::NAN, 5.]]),
+                });
+                assert_eq!(invalid.data_bounds(), baseline.data_bounds());
+            }
         });
     }
 }

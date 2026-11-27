@@ -253,7 +253,7 @@ struct PlotRegion {
     spec: editing::ChartSpec,
     options: editing::ChartOptions,
     curves: Calc<chart_view::Curves>,
-    zoom: f64,
+    viewport: chart_view::Viewport,
 }
 
 #[derive(Clone, Copy)]
@@ -263,13 +263,100 @@ enum PlotZoom {
     Reset,
 }
 
-impl PlotRegion {
+impl PlotZoom {
+    fn apply(self, viewport: &mut chart_view::Viewport) {
+        match self {
+            Self::Out => viewport.factor = (viewport.factor / 1.4).max(0.25),
+            Self::In => viewport.factor = (viewport.factor * 1.4).min(16.0),
+            Self::Reset => *viewport = chart_view::Viewport::default(),
+        }
+    }
+}
+
+struct ChartZoom {
+    region_id: String,
+    preview: chart_view::Viewport,
+    transform: Option<chart_view::PlotTransform>,
+    selecting: bool,
+    drag: Option<ChartZoomDrag>,
+}
+
+struct ChartZoomDrag {
+    start: Pos2,
+    transform: chart_view::PlotTransform,
+}
+
+impl ChartZoom {
     fn change_zoom(&mut self, change: PlotZoom) {
-        self.zoom = match change {
-            PlotZoom::Out => (self.zoom / 1.4).max(0.25),
-            PlotZoom::In => (self.zoom * 1.4).min(16.0),
-            PlotZoom::Reset => 1.0,
-        };
+        change.apply(&mut self.preview);
+        self.drag = None;
+    }
+
+    fn select_area(&mut self, ui: &egui::Ui, transform: chart_view::PlotTransform) {
+        let visible = transform.grid.intersect(ui.clip_rect());
+        if !ui.input(|input| input.raw.focused) {
+            self.drag = None;
+            return;
+        }
+        if self
+            .drag
+            .as_ref()
+            .is_some_and(|drag| drag.transform.grid != transform.grid)
+        {
+            self.drag = None;
+        }
+        if ui.rect_contains_pointer(visible) || self.drag.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        let edges: Vec<_> = ui.input(|input| {
+            input
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        ..
+                    } => Some((*pos, *pressed)),
+                    _ => None,
+                })
+                .collect()
+        });
+        for (pos, pressed) in edges {
+            if pressed {
+                self.drag = (visible.contains(pos)
+                    && ui.ctx().layer_id_at(pos) == Some(ui.layer_id()))
+                .then_some(ChartZoomDrag {
+                    start: pos,
+                    transform,
+                });
+            } else if let Some(drag) = self.drag.take() {
+                let end = pos.clamp(visible.min, visible.max);
+                if let Some(bounds) = drag.transform.selection(drag.start, end) {
+                    self.preview = chart_view::Viewport {
+                        factor: 1.,
+                        frame: Some(bounds),
+                    };
+                    self.selecting = false;
+                    ui.ctx().request_repaint();
+                    break;
+                }
+            }
+        }
+        if !ui.input(|input| input.pointer.primary_down()) {
+            self.drag = None;
+        }
+        if let Some((drag, pos)) = self.drag.as_ref().zip(ui.ctx().pointer_latest_pos()) {
+            let rect = Rect::from_two_pos(drag.start, pos).intersect(visible);
+            ui.painter().with_clip_rect(visible).rect(
+                rect,
+                0.,
+                Color32::from_rgba_unmultiplied(37, 112, 218, 34),
+                Stroke::new(1.0_f32, ACCENT),
+                StrokeKind::Inside,
+            );
+        }
     }
 }
 
@@ -415,7 +502,7 @@ impl Worksheet {
                         spec,
                         options,
                         curves,
-                        zoom: 1.0,
+                        viewport: chart_view::Viewport::default(),
                     },
                 ))
             })
@@ -1126,7 +1213,7 @@ struct Workbench {
     page_dialog: Option<editing::PageSettings>,
     animation: Option<AnimationState>,
     chart_trace: Option<ChartTrace>,
-    chart_zoom: Option<String>,
+    chart_zoom: Option<ChartZoom>,
     area_dialog: Option<AreaDialog>,
     textures: HashMap<String, Option<egui::TextureHandle>>,
     auto_reload: bool,
@@ -1307,6 +1394,7 @@ impl Workbench {
         self.file_stamp = Some(stamp);
         self.document = updated;
         self.generation = self.generation.wrapping_add(1);
+        self.chart_zoom = None;
         self.jump = None;
         self.textures.clear();
         self.undo_stack.clear();
@@ -1424,6 +1512,9 @@ impl Workbench {
 
     fn record_undo(&mut self, snap: SheetSnapshot) {
         const MAX_HISTORY: usize = 64;
+        if self.chart_zoom.is_some() && self.document.xml != snap.xml {
+            self.chart_zoom = None;
+        }
         if self.undo_stack.len() >= MAX_HISTORY {
             self.undo_stack.remove(0);
         }
@@ -1438,6 +1529,7 @@ impl Workbench {
         let current = self.document.snapshot();
         match self.document.restore(prev) {
             Ok(()) => {
+                self.chart_zoom = None;
                 self.redo_stack.push(current);
                 self.sync_selection_from_ids();
                 self.error = None;
@@ -1454,6 +1546,7 @@ impl Workbench {
         let current = self.document.snapshot();
         match self.document.restore(next) {
             Ok(()) => {
+                self.chart_zoom = None;
                 self.undo_stack.push(current);
                 self.sync_selection_from_ids();
                 self.error = None;
@@ -2127,11 +2220,36 @@ impl Workbench {
     }
 
     fn open_chart_trace(&mut self, index: usize) {
+        self.chart_zoom = None;
         self.select_for_menu(index);
         self.chart_trace = Some(ChartTrace {
             region_id: self.document.sheet.regions[index].source_id.clone(),
             snap: true,
             sample: None,
+        });
+    }
+
+    fn open_chart_zoom(&mut self, index: usize) {
+        let Some(plot) = self.document.plots.get(&index) else {
+            return;
+        };
+        let preview = plot.viewport;
+        let region_id = self.document.sheet.regions[index].source_id.clone();
+        self.select(index);
+        self.chart_trace = None;
+        if self
+            .chart_zoom
+            .as_ref()
+            .is_some_and(|zoom| zoom.region_id == region_id)
+        {
+            return;
+        }
+        self.chart_zoom = Some(ChartZoom {
+            region_id,
+            preview,
+            transform: None,
+            selecting: false,
+            drag: None,
         });
     }
 
@@ -2201,17 +2319,38 @@ impl Workbench {
             }
         }
 
-        let Some(id) = self.chart_zoom.take() else {
+        let Some(mut zoom) = self.chart_zoom.take() else {
             return;
         };
-        let Some(index) = self.document.by_id(&id).ok() else {
+        let Some(index) = self
+            .selected_chart()
+            .filter(|&index| self.document.sheet.regions[index].source_id == zoom.region_id)
+        else {
+            ctx.request_repaint();
             return;
         };
-        let Some(plot) = self.document.plots.get_mut(&index) else {
+        if self.pending.is_some()
+            || self.load.is_some()
+            || self.insertion.is_some()
+            || self.editor.is_some()
+            || self.table_editor.is_some()
+            || self.page_dialog.is_some()
+            || self.area_dialog.is_some()
+            || self.animation.is_some()
+        {
+            ctx.request_repaint();
             return;
-        };
+        }
+        if !self.tool_search.is_blocking_sheet(ctx)
+            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::Escape))
+        {
+            ctx.request_repaint();
+            return;
+        }
         let mut open = true;
         let mut edit = false;
+        let mut accept = false;
+        let mut cancel = false;
         egui::Window::new("Масштаб графика")
             .id(egui::Id::new("chart_zoom"))
             .default_pos(Pos2::new((ctx.content_rect().right() - 325.).max(0.), 275.))
@@ -2226,21 +2365,59 @@ impl Workbench {
                         ("Сбросить", PlotZoom::Reset),
                     ] {
                         if ui.button(label).clicked() {
-                            plot.change_zoom(change);
+                            zoom.change_zoom(change);
+                            ctx.request_repaint();
                         }
                     }
                 });
                 edit = ui.button("Границы осей…").clicked();
+                if ui
+                    .add_enabled(
+                        zoom.selecting || zoom.transform.is_some(),
+                        egui::Button::selectable(zoom.selecting, "Выделить область"),
+                    )
+                    .clicked()
+                {
+                    zoom.selecting = !zoom.selecting;
+                    zoom.drag = None;
+                    ctx.request_repaint();
+                }
+                if zoom.selecting {
+                    ui.label("Протяните рамку внутри графика.");
+                }
+                let bounds = zoom.transform.map(|transform| transform.data_bounds());
+                for (axis, label) in ["X", "Y"].into_iter().enumerate() {
+                    let range = bounds.map_or_else(
+                        || "—".into(),
+                        |bounds| {
+                            let [min, max] = bounds[axis];
+                            format!("{} … {}", display_number(min), display_number(max))
+                        },
+                    );
+                    ui.label(format!("{label}  {range}"));
+                }
+                ui.horizontal(|ui| {
+                    accept = ui.button("ОК").clicked();
+                    cancel = ui.button("Отмена").clicked();
+                });
             });
-        if edit {
+        if !open || cancel {
+            ctx.request_repaint();
+        } else if edit {
             self.edit_chart(index);
-        } else if open {
-            self.chart_zoom = Some(id);
+        } else if accept {
+            if let Some(plot) = self.document.plots.get_mut(&index) {
+                plot.viewport = zoom.preview;
+            }
+            ctx.request_repaint();
+        } else {
+            self.chart_zoom = Some(zoom);
         }
     }
 
     fn edit_chart(&mut self, index: usize) {
         if let Some(graph) = self.document.plots.get(&index) {
+            self.chart_zoom = None;
             self.insertion = Some(Insertion {
                 at: self.position_for_insert(),
                 draft: DraftRegion::Chart(Box::new(chart_view::Draft::from_spec(
@@ -3139,6 +3316,7 @@ impl Workbench {
         let snap = self.document.snapshot();
         match self.document.restore(snap) {
             Ok(()) => {
+                self.chart_zoom = None;
                 self.sync_selection_from_ids();
                 self.error = None;
                 self.status = format!(
@@ -3242,7 +3420,7 @@ impl Workbench {
             }
             tool_ribbon::ToolAction::ChartZoom => {
                 if let Some(index) = self.selected_chart() {
-                    self.chart_zoom = Some(self.document.sheet.regions[index].source_id.clone());
+                    self.open_chart_zoom(index);
                 }
             }
             tool_ribbon::ToolAction::ChartTrace => {
@@ -4349,6 +4527,7 @@ impl Workbench {
                     }
                     if let Some(plot) = self.document.plots.get_mut(&index) {
                         ui.add_space(4.);
+                        let mut change = None;
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("Приближение:")
@@ -4356,19 +4535,31 @@ impl Workbench {
                                     .color(tool_ribbon::TEXT_MUTED),
                             );
                             if ui.small_button("−").clicked() {
-                                plot.change_zoom(PlotZoom::Out);
+                                change = Some(PlotZoom::Out);
                             }
                             if ui.small_button("+").clicked() {
-                                plot.change_zoom(PlotZoom::In);
+                                change = Some(PlotZoom::In);
                             }
                             if ui
                                 .small_button("1:1")
                                 .on_hover_text("Сбросить приближение")
                                 .clicked()
                             {
-                                plot.change_zoom(PlotZoom::Reset);
+                                change = Some(PlotZoom::Reset);
                             }
                         });
+                        if let Some(change) = change {
+                            let id = &self.document.sheet.regions[index].source_id;
+                            if let Some(zoom) = self
+                                .chart_zoom
+                                .as_mut()
+                                .filter(|zoom| &zoom.region_id == id)
+                            {
+                                zoom.change_zoom(change);
+                            } else {
+                                change.apply(&mut plot.viewport);
+                            }
+                        }
                     }
                 }
                 if self.document.plots3d.contains_key(&index) {
@@ -4446,6 +4637,13 @@ impl Workbench {
     }
 
     fn workspace(&mut self, ctx: &egui::Context) {
+        let mut scroll_source = egui::scroll_area::ScrollSource::ALL;
+        if let Some(zoom) = &mut self.chart_zoom {
+            zoom.transform = None;
+            scroll_source.drag = !zoom.selecting;
+            scroll_source.scroll_bar = zoom.drag.is_none();
+            scroll_source.mouse_wheel = zoom.drag.is_none();
+        }
         egui::CentralPanel::default()
             .frame(Frame::new().fill(tool_ribbon::SHELL_BG))
             .show(ctx, |ui| {
@@ -4493,8 +4691,14 @@ impl Workbench {
                 egui::ScrollArea::both()
                     .id_salt(("sheet_view", self.generation))
                     .auto_shrink([false, false])
+                    .scroll_source(scroll_source)
                     .show_viewport(ui, |ui, viewport| self.paper(ui, zoom, viewport.size()));
             });
+        if let Some(zoom) = &mut self.chart_zoom {
+            if zoom.transform.is_none() {
+                zoom.drag = None;
+            }
+        }
     }
 
     fn effective_zoom(&self, width: f32) -> f32 {
@@ -4714,8 +4918,7 @@ impl Workbench {
             }
             if ui.button("Масштаб…").clicked() {
                 ui.close();
-                self.select_for_menu(index);
-                self.chart_zoom = Some(self.document.sheet.regions[index].source_id.clone());
+                self.open_chart_zoom(index);
             }
         } else if self.document.plots3d.contains_key(&index) {
             if ui.button("Формат 3D-графика…").clicked() {
@@ -4772,6 +4975,13 @@ impl Workbench {
     }
 
     fn paper(&mut self, ui: &mut egui::Ui, zoom: f32, viewport: egui::Vec2) {
+        let zoom_selecting = self.chart_zoom.as_ref().is_some_and(|zoom| zoom.selecting);
+        if zoom_selecting {
+            // Handle zoom input using the raw mouse-down and release coordinates, while
+            // preventing the sheet widgets from reacting to those same pointer events.
+            ui.disable();
+            ui.set_opacity(1.);
+        }
         let (page, _) = ui.allocate_exact_size(self.paper_size(ui, zoom, viewport), Sense::hover());
         let painter = ui.painter();
         painter.rect_filled(page, 0., PAPER);
@@ -4964,24 +5174,40 @@ impl Workbench {
                     .chart_trace
                     .as_mut()
                     .filter(|trace| trace.region_id == region.source_id);
+                let chart_zoom = self
+                    .chart_zoom
+                    .as_mut()
+                    .filter(|zoom| zoom.region_id == region.source_id);
                 let mode = match trace.as_ref() {
                     Some(trace) if trace.snap => chart_view::TraceMode::Data,
                     Some(_) => chart_view::TraceMode::Cursor,
                     None => chart_view::TraceMode::Hover,
                 };
-                let sample = chart_view::draw(
+                let rendered = chart_view::draw(
                     ui.painter(),
                     rect,
                     &plot.curves,
                     &plot.options,
                     plot.spec.is_polar(),
-                    plot.zoom,
+                    chart_zoom
+                        .as_ref()
+                        .map_or(plot.viewport, |zoom| zoom.preview),
                     response.hover_pos(),
                     selected,
                     mode,
                 );
-                if let (Some(trace), Some(sample)) = (trace, sample) {
+                if let (Some(trace), Some(sample)) = (trace, rendered.sample) {
                     trace.sample = Some(sample);
+                }
+                if let Some(zoom) = chart_zoom {
+                    zoom.transform = rendered.transform;
+                    if zoom.selecting {
+                        if let Some(transform) = rendered.transform {
+                            zoom.select_area(ui, transform);
+                        } else {
+                            zoom.drag = None;
+                        }
+                    }
                 }
                 if response.double_clicked() {
                     edit_region = Some((index, 1));
@@ -5653,7 +5879,11 @@ impl Workbench {
                 _ => self.start_formula_inline(index),
             }
         }
-        self.sheet_context_menu(ui, page, zoom, &screen_rects);
+        if zoom_selecting {
+            egui::Popup::close_id(ui.ctx(), self.sheet_menu_id());
+        } else {
+            self.sheet_context_menu(ui, page, zoom, &screen_rects);
+        }
         if let Some(id) = toggle_area_id {
             let before = self.document.snapshot();
             if self.document.toggle_area(&id).is_ok() {
@@ -6186,7 +6416,7 @@ impl eframe::App for Workbench {
         self.toolbar(ctx);
         self.format_bar(ctx);
         self.tool_ribbon_panel(ctx);
-        if no_modal {
+        if no_modal && !self.chart_zoom.as_ref().is_some_and(|zoom| zoom.selecting) {
             self.route_sheet_typing(ctx);
             if self.insertion.is_none()
                 && !ctx.wants_keyboard_input()
@@ -6281,6 +6511,125 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chart_zoom_captures_press_and_commits_only_the_confirmed_view() {
+        let ctx = egui::Context::default();
+        let mut app = Workbench::new(&ctx, None).unwrap();
+        app.replace(Worksheet::chart_example().unwrap());
+        let index = *app.document.plots.keys().next().unwrap();
+        let initial = chart_view::Viewport {
+            factor: 1.4,
+            frame: None,
+        };
+        app.document.plots.get_mut(&index).unwrap().viewport = initial;
+        let export = app.document.export().unwrap();
+        let region = app.document.rects[index];
+
+        let tick = |app: &mut Workbench, events| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1080., 740.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    app.workspace(ctx);
+                    app.chart_tools(ctx);
+                },
+            )
+        };
+        let pointer = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        app.select(index);
+        app.apply_tool_action(tool_ribbon::ToolAction::ChartZoom);
+        tick(&mut app, vec![]);
+        let session = app.chart_zoom.as_mut().unwrap();
+        assert_eq!(session.preview, initial);
+        let transform = session.transform.unwrap();
+        session.selecting = true;
+        let grid = transform.grid;
+        let start = grid.min + grid.size() * 0.25;
+        let end = grid.max + vec2(24., 12.);
+        let outside = grid.min - vec2(10., 10.);
+        tick(
+            &mut app,
+            vec![pointer(outside, true), egui::Event::PointerMoved(start)],
+        );
+        assert!(app.chart_zoom.as_ref().unwrap().drag.is_none());
+        tick(&mut app, vec![pointer(start, false)]);
+        assert!(app.chart_zoom.as_ref().unwrap().selecting);
+
+        let mid = grid.center();
+        tick(
+            &mut app,
+            vec![pointer(start, true), egui::Event::PointerMoved(mid)],
+        );
+        assert_eq!(
+            app.chart_zoom
+                .as_ref()
+                .unwrap()
+                .drag
+                .as_ref()
+                .unwrap()
+                .start,
+            start
+        );
+        tick(&mut app, vec![egui::Event::PointerMoved(end)]);
+        tick(&mut app, vec![pointer(end, false)]);
+        let zoom = app.chart_zoom.as_ref().unwrap();
+        let chosen = chart_view::Viewport {
+            factor: 1.,
+            frame: transform.selection(start, end),
+        };
+        assert!(chosen.frame.is_some());
+        assert_eq!(zoom.preview, chosen);
+        assert!(!zoom.selecting);
+        assert_eq!(app.document.plots[&index].viewport, initial);
+        assert_eq!(app.selected, Some(index));
+        assert!(app.drag.is_none() && app.marquee.is_none() && app.insertion.is_none());
+
+        tick(
+            &mut app,
+            vec![egui::Event::Key {
+                key: Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(app.chart_zoom.is_none());
+        assert_eq!(app.document.plots[&index].viewport, initial);
+
+        app.open_chart_zoom(index);
+        app.chart_zoom.as_mut().unwrap().preview = chosen;
+        tick(&mut app, vec![]);
+        let output = tick(&mut app, vec![]);
+        let ok = output
+            .shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) if text.galley.text() == "ОК" => {
+                    Some(text.visual_bounding_rect().center())
+                }
+                _ => None,
+            })
+            .unwrap();
+        tick(&mut app, vec![egui::Event::PointerMoved(ok)]);
+        tick(&mut app, vec![pointer(ok, true)]);
+        tick(&mut app, vec![pointer(ok, false)]);
+        assert!(app.chart_zoom.is_none());
+        assert_eq!(app.document.plots[&index].viewport, chosen);
+        assert_eq!(app.document.export().unwrap(), export);
+        assert_eq!(app.document.rects[index], region);
+        assert!(app.undo_stack.is_empty());
+        assert!(!app.document.unsaved);
+    }
 
     #[test]
     fn chart_format_and_document_defaults_survive_export_and_undo() {
