@@ -9,7 +9,8 @@ $names = @(
     'Complex_numbers_variant_24.xmcd'
     'Complex_numbers_variant_24_calculations.xmcd'
     'Complex_numbers_variant_24_arctg_arcctg.xmcd',
-    'mathcad15-calculus.xmcd'
+    'mathcad15-calculus.xmcd',
+    'mathcad15-atan2-statistics.xmcd'
 )
 
 foreach ($name in $names) {

@@ -1385,21 +1385,42 @@ fn stat_median(values: &[Value]) -> Calc<Value> {
     first.with_number(med)
 }
 
-fn stat_variance(values: &[Value], sample: bool) -> Calc<Value> {
-    let first = real_slice_same_dim(values, if sample { "stdev" } else { "var" })?;
-    let n = values.len();
-    if n == 0 || (sample && n < 2) {
-        return Err("недостаточно элементов для вычисления разброса".into());
-    }
-    let mean = values.iter().map(|v| v.number).sum::<f64>() / n as f64;
-    let denom = if sample { (n - 1) as f64 } else { n as f64 };
-    let v = values
+fn stat_dispersion(name: &str, args: &[Datum]) -> Calc<Value> {
+    let groups = args
         .iter()
-        .map(|x| (x.number - mean).powi(2))
-        .sum::<f64>()
-        / denom;
-    let unit_sq = first.binary("pow", Value::scalar(2.)?)?;
-    unit_sq.with_number(v)
+        .map(|arg| match arg {
+            Datum::Scalar(value) => Ok(std::slice::from_ref(value)),
+            Datum::Matrix(matrix) => Ok(matrix.values.as_slice()),
+            _ => Err(format!("{name} требует скаляры или массивы")),
+        })
+        .collect::<Calc<Vec<_>>>()?;
+    let values = groups.iter().flat_map(|group| group.iter());
+    let first = *values
+        .clone()
+        .next()
+        .ok_or_else(|| format!("{name}: недостаточно элементов для вычисления разброса"))?;
+    let origin = Complex64::new(first.number, first.imaginary);
+    let offset = |value: &Value| Complex64::new(value.number, value.imaginary) - origin;
+    let sample = matches!(name, "Var" | "Stdev");
+    let n: usize = groups.iter().map(|group| group.len()).sum();
+    let mut offset_mean = Complex64::default();
+    for value in values.clone() {
+        if !first.compatible(*value) {
+            return Err(format!("{name} требует значения одной размерности"));
+        }
+        offset_mean += offset(value) / n as f64;
+    }
+    // Mathcad returns zero for a singleton in both population and sample functions.
+    let denom = (n - usize::from(sample)).max(1) as f64;
+    let variance = values
+        .map(|value| (offset(value) - offset_mean).norm_sqr() / denom)
+        .sum::<f64>();
+    if matches!(name, "stdev" | "Stdev") {
+        first.with_number(variance.sqrt())
+    } else {
+        let unit_sq = first.with_number(1.)?.binary("pow", Value::scalar(2.)?)?;
+        unit_sq.with_number(variance)
+    }
 }
 
 fn matrix_norm(values: &[Value]) -> Calc<Value> {
@@ -2481,8 +2502,7 @@ fn builtin(op: &str, args: &[Datum], ctx: &Context<'_>) -> Calc<Datum> {
         }
         ("max", [Datum::Scalar(a), Datum::Scalar(b)]) => Ok(stat_extremum(&[*a, *b], true)?.into()),
         ("median", [Datum::Matrix(a)]) => Ok(stat_median(&a.values)?.into()),
-        ("var", [Datum::Matrix(a)]) => Ok(stat_variance(&a.values, false)?.into()),
-        ("stdev", [Datum::Matrix(a)]) => Ok(stat_variance(&a.values, true)?.unary("sqrt")?.into()),
+        ("var" | "Var" | "stdev" | "Stdev", args) => Ok(stat_dispersion(op, args)?.into()),
         ("norm", [Datum::Matrix(a)]) => Ok(matrix_norm(&a.values)?.into()),
         ("linterp", [Datum::Matrix(vx), Datum::Matrix(vy), Datum::Scalar(x)]) => {
             Ok(linear_interp(&vx.values, &vy.values, *x)?.into())
@@ -2562,8 +2582,18 @@ fn builtin(op: &str, args: &[Datum], ctx: &Context<'_>) -> Calc<Datum> {
         ("tr", [Datum::Matrix(a)]) if a.rows == a.cols => {
             Ok(sum((0..a.rows).map(|i| a.get(i, i)))?.into())
         }
-        ("atan2", [a, b]) => {
-            Ok(Value::scalar(a.scalar()?.real_scalar()?.atan2(b.scalar()?.real_scalar()?))?.into())
+        ("atan2", [Datum::Scalar(x), Datum::Scalar(y)]) => {
+            real_slice_same_dim(&[*x, *y], "atan2")?;
+            if x.number == 0. && y.number == 0. {
+                return Err("atan2 не определён в начале координат".into());
+            }
+            // Mathcad takes (x, y) and returns an angle in (-π, π].
+            let angle = if y.number == 0. && x.number < 0. {
+                std::f64::consts::PI
+            } else {
+                y.number.atan2(x.number)
+            };
+            Ok(Value::scalar(angle)?.into())
         }
         ("rows" | "cols" | "length", [Datum::Matrix(a)]) => {
             let size = match op {
@@ -2865,12 +2895,9 @@ mod tests {
         assert_eq!(min_v, 2.0);
         assert_eq!(stat_extremum(&v.values, true).unwrap().number, 4.0);
         assert_eq!(stat_median(&v.values).unwrap().number, 2.5);
-        assert!((stat_variance(&v.values, false).unwrap().number - 1.25).abs() < 1e-12);
-        let std = stat_variance(&v.values, true)
-            .unwrap()
-            .unary("sqrt")
-            .unwrap()
-            .number;
+        let stats_args = [Datum::Matrix(v)];
+        assert!((stat_dispersion("var", &stats_args).unwrap().number - 1.25).abs() < 1e-12);
+        let std = stat_dispersion("Stdev", &stats_args).unwrap().number;
         assert!((std - (5.0_f64 / 3.0).sqrt()).abs() < 1e-12);
         let vec34 = matrix(2, 1, &[3., 4.]);
         assert!((matrix_norm(&vec34.values).unwrap().number - 5.0).abs() < 1e-12);
@@ -2893,6 +2920,105 @@ mod tests {
                 .abs()
                 < 1e-12
         );
+    }
+
+    #[test]
+    fn atan2_follows_mathcad_coordinates_and_dimension_rules() {
+        use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
+
+        let angle = |x, y| {
+            Expr::Builtin("atan2".into(), vec![Expr::Literal(x), Expr::Literal(y)])
+                .eval(&[])?
+                .scalar()
+        };
+        let meter = Value::constant("m").unwrap();
+        let second = Value::constant("s").unwrap();
+        for (x, y, expected) in [
+            (1., 0., 0.),
+            (0., 1., FRAC_PI_2),
+            (-1., -0., PI),
+            (0., -1., -FRAC_PI_2),
+            (1., 1., FRAC_PI_4),
+            (-1., 1., 3. * FRAC_PI_4),
+            (-1., -1., -3. * FRAC_PI_4),
+            (1., -1., -FRAC_PI_4),
+        ] {
+            let actual = angle(meter.with_number(x).unwrap(), meter.with_number(y).unwrap())
+                .unwrap()
+                .real_scalar()
+                .unwrap();
+            assert!((actual - expected).abs() < 1e-15, "({x}, {y})");
+        }
+        let zero = meter.with_number(0.).unwrap();
+        assert!(angle(zero, zero).unwrap_err().contains("начале координат"));
+        assert!(angle(meter, second).is_err());
+        assert!(angle(Value::complex(0., 1.).unwrap(), Value::scalar(1.).unwrap()).is_err());
+    }
+
+    #[test]
+    fn worksheet_variance_and_stdev_mix_scalars_and_arrays_by_case() {
+        let mut xml = String::from(
+            r#"<worksheet xmlns="http://schemas.mathsoft.com/worksheet30" xmlns:ml="http://schemas.mathsoft.com/math30"><regions>"#,
+        );
+        let mix = r#"<ml:sequence><ml:real>1</ml:real><ml:matrix rows="1" cols="2"><ml:real>3</ml:real><ml:real>5</ml:real></ml:matrix><ml:matrix rows="2" cols="1"><ml:real>7</ml:real><ml:real>9</ml:real></ml:matrix></ml:sequence>"#;
+        let single = "<ml:real>42</ml:real>";
+        for (i, (op, args)) in [
+            ("var", mix),
+            ("Var", mix),
+            ("stdev", mix),
+            ("Stdev", mix),
+            ("var", single),
+            ("stdev", single),
+            ("Var", single),
+            ("Stdev", single),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            xml.push_str(&format!(
+                r#"<region region-id="{i}" left="0" top="{}"><math><ml:eval><ml:apply><ml:id>{op}</ml:id>{args}</ml:apply></ml:eval></math></region>"#,
+                i * 40
+            ));
+        }
+        xml.push_str("</regions></worksheet>");
+        let mut sheet = crate::sheet::Sheet::import(&xml).unwrap();
+        sheet.full();
+        for (i, expected) in [
+            "8",
+            "10",
+            "2.82842712475",
+            "3.16227766017",
+            "0",
+            "0",
+            "0",
+            "0",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(sheet.display(i).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn variance_and_stdev_preserve_dimensions_and_measure_complex_magnitude() {
+        let first = Value::complex(1., 2.).unwrap();
+        let second = Value::complex(3., 4.).unwrap();
+        let meter = Value::constant("m").unwrap();
+        let scale = |value: Value, unit: Value| value.binary("mult", unit).unwrap();
+        let args: [Datum; 2] = [scale(first, meter).into(), scale(second, meter).into()];
+        let meter_squared = meter.binary("pow", Value::scalar(2.).unwrap()).unwrap();
+        for (name, expected, unit) in [
+            ("var", 2., meter_squared),
+            ("Var", 4., meter_squared),
+            ("stdev", 2_f64.sqrt(), meter),
+            ("Stdev", 2., meter),
+        ] {
+            let actual = stat_dispersion(name, &args).unwrap();
+            assert_eq!(actual, unit.with_number(expected).unwrap());
+            assert!(stat_dispersion(name, &[args[0].clone(), second.into()]).is_err());
+            assert!(stat_dispersion(name, &[]).is_err());
+        }
     }
 
     fn builtin_eval(op: &str, args: Vec<Expr>) -> f64 {
