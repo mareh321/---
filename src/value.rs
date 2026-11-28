@@ -184,6 +184,48 @@ impl Value {
         Self::from_complex(self.z() / unit.number, ZERO)
     }
 
+    pub fn logarithm(self, base: Self) -> Calc<Self> {
+        if !self.dimensionless() {
+            return Err("log требует безразмерный аргумент".into());
+        }
+        if self.number == 0. && self.imaginary == 0. {
+            return Err("логарифм нуля не определён".into());
+        }
+        let base = base.real_scalar()?;
+        if base <= 0. || base == 1. {
+            return Err("log: основание должно быть положительным и отличным от единицы".into());
+        }
+        Self::from_complex(self.z().ln() / base.ln(), ZERO)
+    }
+
+    pub fn round_decimal(self, places: Self) -> Calc<Self> {
+        if !self.dimensionless() {
+            return Err("round требует безразмерный аргумент".into());
+        }
+        let requested_places = places.real_scalar()?;
+        let places = requested_places.round();
+        // Mathcad accepts near-integer precision values from numerical expressions.
+        if (requested_places - places).abs() > 1e-11 * places.abs().max(1.) {
+            return Err("round: число десятичных знаков должно быть целым".into());
+        }
+        if places <= -308. {
+            return Self::scalar(0.);
+        }
+        let scale = 10_f64.powf(places.abs());
+        let round_part = |number: f64| {
+            if places >= 0. {
+                let scaled = number * scale;
+                if scaled.abs() >= (1_u64 << 52) as f64 || !scale.is_finite() {
+                    return number;
+                }
+                scaled.round() / scale
+            } else {
+                (number / scale).round() * scale
+            }
+        };
+        Self::complex(round_part(self.number), round_part(self.imaginary))
+    }
+
     pub fn binary(self, op: &str, other: Self) -> Calc<Self> {
         match op {
             "plus" | "minus" => {
@@ -326,10 +368,10 @@ impl Value {
             "tanh" => z.tanh(),
             "exp" => z.exp(),
             "ln" => z.ln(),
-            "log" => z.ln() / std::f64::consts::LN_10,
+            "log" => return self.logarithm(Self::scalar(10.)?),
             "floor" => return Self::scalar(self.real_scalar()?.floor()),
             "ceil" => return Self::scalar(self.real_scalar()?.ceil()),
-            "round" => return Self::scalar(self.real_scalar()?.round()),
+            "round" => return self.round_decimal(Self::scalar(0.)?),
             "not" => return Self::scalar(f64::from(self.real_scalar()? == 0.)),
             "factorial" => {
                 let n = self.real_scalar()?;

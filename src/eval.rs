@@ -1385,15 +1385,41 @@ fn stat_median(values: &[Value]) -> Calc<Value> {
     first.with_number(med)
 }
 
-fn stat_dispersion(name: &str, args: &[Datum]) -> Calc<Value> {
-    let groups = args
-        .iter()
+fn statistical_groups<'a>(name: &str, args: &'a [Datum]) -> Calc<Vec<&'a [Value]>> {
+    args.iter()
         .map(|arg| match arg {
             Datum::Scalar(value) => Ok(std::slice::from_ref(value)),
             Datum::Matrix(matrix) => Ok(matrix.values.as_slice()),
             _ => Err(format!("{name} требует скаляры или массивы")),
         })
-        .collect::<Calc<Vec<_>>>()?;
+        .collect()
+}
+
+fn arithmetic_mean(args: &[Datum]) -> Calc<Value> {
+    if let [Datum::Range(span)] = args {
+        return sum(span.values())?.multiply_number(1. / span.count as f64);
+    }
+    let groups = statistical_groups("mean", args)?;
+    let n: usize = groups.iter().map(|group| group.len()).sum();
+    if n == 0 {
+        return Err("mean: нет значений".into());
+    }
+    let values = groups.into_iter().flatten();
+    let is_zero = |value: &Value| value.number == 0. && value.imaginary == 0.;
+    let Some(unit_anchor) = values.clone().find(|value| !is_zero(value)) else {
+        return Value::scalar(0.);
+    };
+    let weight = 1. / n as f64;
+    sum(values.map(|value| {
+        if is_zero(value) {
+            return unit_anchor.with_number(0.);
+        }
+        value.multiply_number(weight)
+    }))
+}
+
+fn stat_dispersion(name: &str, args: &[Datum]) -> Calc<Value> {
+    let groups = statistical_groups(name, args)?;
     let values = groups.iter().flat_map(|group| group.iter());
     let first = *values
         .clone()
@@ -1421,6 +1447,42 @@ fn stat_dispersion(name: &str, args: &[Datum]) -> Calc<Value> {
         let unit_sq = first.with_number(1.)?.binary("pow", Value::scalar(2.)?)?;
         unit_sq.with_number(variance)
     }
+}
+
+fn scalar_or_column<'a>(name: &str, argument: &'a Datum) -> Calc<(&'a [Value], bool)> {
+    match argument {
+        Datum::Scalar(value) => Ok((std::slice::from_ref(value), false)),
+        Datum::Matrix(vector) if vector.cols == 1 => Ok((&vector.values, true)),
+        _ => Err(format!("{name} требует скаляр или вектор-столбец")),
+    }
+}
+
+fn apply_to_scalars_or_columns(
+    name: &str,
+    left: &Datum,
+    right: &Datum,
+    operation: impl Fn(Value, Value) -> Calc<Value>,
+) -> Calc<Datum> {
+    let (left, left_column) = scalar_or_column(name, left)?;
+    let (right, right_column) = scalar_or_column(name, right)?;
+    if !left_column && !right_column {
+        return Ok(operation(left[0], right[0])?.into());
+    }
+    if left_column && right_column && left.len() != right.len() {
+        return Err(format!("{name} требует векторы одинаковой длины"));
+    }
+    let rows = left.len().max(right.len());
+    let values = (0..rows)
+        .map(|i| {
+            operation(
+                left[if left_column { i } else { 0 }],
+                right[if right_column { i } else { 0 }],
+            )
+        })
+        .collect::<Calc<_>>()?;
+    Ok(Datum::Matrix(Arc::new(Matrix::from_values(
+        rows, 1, values,
+    )?)))
 }
 
 fn matrix_norm(values: &[Value]) -> Calc<Value> {
@@ -2298,6 +2360,22 @@ fn eval_solve_block(sb: &SolveBlockExpr, ctx: &Context<'_>) -> Calc<Datum> {
 
 fn builtin(op: &str, args: &[Datum], ctx: &Context<'_>) -> Calc<Datum> {
     match (op, args) {
+        ("log", [argument]) => {
+            apply_to_scalars_or_columns(op, argument, &Value::scalar(10.)?.into(), Value::logarithm)
+        }
+        ("log", [argument, base]) => {
+            apply_to_scalars_or_columns(op, argument, base, Value::logarithm)
+        }
+        ("round", [argument]) => apply_to_scalars_or_columns(
+            op,
+            argument,
+            &Value::scalar(0.)?.into(),
+            Value::round_decimal,
+        ),
+        ("round", [argument, places]) => {
+            apply_to_scalars_or_columns(op, argument, places, Value::round_decimal)
+        }
+        ("mean", args) => Ok(arithmetic_mean(args)?.into()),
         ("erf", [Datum::Scalar(x)]) => {
             Ok(Value::scalar(crate::engineering::erf_f64(x.real_scalar()?))?.into())
         }
@@ -2604,24 +2682,8 @@ fn builtin(op: &str, args: &[Datum], ctx: &Context<'_>) -> Calc<Datum> {
             Ok(Value::scalar(size as f64)?.into())
         }
         ("transpose", [Datum::Matrix(a)]) => Ok(Datum::Matrix(Arc::new(a.transpose()))),
-        ("sum" | "mean", [Datum::Matrix(a)]) => {
-            let result = sum(a.values.iter().copied().map(Ok))?;
-            Ok(if op == "mean" {
-                result.multiply_number(1. / a.values.len() as f64)?
-            } else {
-                result
-            }
-            .into())
-        }
-        ("sum" | "mean", [Datum::Range(span)]) => {
-            let result = sum(span.values())?;
-            Ok(if op == "mean" {
-                result.multiply_number(1. / span.count as f64)?
-            } else {
-                result
-            }
-            .into())
-        }
+        ("sum", [Datum::Matrix(a)]) => Ok(sum(a.values.iter().copied().map(Ok))?.into()),
+        ("sum", [Datum::Range(span)]) => Ok(sum(span.values())?.into()),
         ("plus" | "minus", [Datum::Matrix(a), Datum::Matrix(b)]) => {
             Ok(Datum::Matrix(Arc::new(a.zip(b, op)?)))
         }
@@ -3019,6 +3081,143 @@ mod tests {
             assert!(stat_dispersion(name, &[args[0].clone(), second.into()]).is_err());
             assert!(stat_dispersion(name, &[]).is_err());
         }
+    }
+
+    #[test]
+    fn logarithm_accepts_positive_bases_and_preserves_vector_shape() {
+        let literal = |value| Expr::Literal(Value::scalar(value).unwrap());
+        let log = |args| Expr::Builtin("log".into(), args).eval(&[]);
+        let vector = Expr::Matrix(3, 1, vec![literal(1.), literal(8.), literal(-8.)]);
+        let Datum::Matrix(values) = log(vec![vector, literal(2.)]).unwrap() else {
+            panic!("ожидался вектор");
+        };
+        assert_eq!((values.rows, values.cols), (3, 1));
+        assert_eq!(values.values[0].number, 0.);
+        assert!((values.values[1].number - 3.).abs() < 1e-12);
+        assert!((values.values[2].number - 3.).abs() < 1e-12);
+        assert!((values.values[2].imaginary - std::f64::consts::PI / 2_f64.ln()).abs() < 1e-12);
+        let inverse = log(vec![literal(8.), literal(0.5)]).unwrap();
+        assert!((inverse.scalar().unwrap().number + 3.).abs() < 1e-12);
+        assert!((log(vec![literal(100.)]).unwrap().scalar().unwrap().number - 2.).abs() < 1e-12);
+        assert!(log(vec![literal(0.), literal(2.)]).is_err());
+        for base in [-2., 0., 1.] {
+            assert!(log(vec![literal(8.), literal(base)]).is_err());
+        }
+        let dimensional_base = Expr::Literal(Value::constant("m").unwrap());
+        assert!(log(vec![literal(8.), dimensional_base]).is_err());
+        let bases = || Expr::Matrix(2, 1, vec![literal(2.), literal(0.5)]);
+        let Datum::Matrix(values) = log(vec![literal(8.), bases()]).unwrap() else {
+            panic!("ожидался вектор оснований");
+        };
+        assert!((values.values[0].number - 3.).abs() < 1e-12);
+        assert!((values.values[1].number + 3.).abs() < 1e-12);
+        assert!(log(vec![Expr::Matrix(1, 1, vec![literal(8.)]), bases()]).is_err());
+        assert!(log(vec![Expr::Matrix(1, 2, vec![literal(2.), literal(4.)])]).is_err());
+    }
+
+    #[test]
+    fn rounding_with_places_handles_negative_places_and_complex_components() {
+        let literal = |value| Expr::Literal(Value::scalar(value).unwrap());
+        let round = |args| Expr::Builtin("round".into(), args).eval(&[]);
+        let vector = Expr::Matrix(
+            2,
+            1,
+            vec![
+                Expr::Literal(Value::complex(1.236, -2.236).unwrap()),
+                literal(-8.744),
+            ],
+        );
+        let Datum::Matrix(values) = round(vec![vector, literal(2.)]).unwrap() else {
+            panic!("ожидался вектор");
+        };
+        assert_eq!((values.rows, values.cols), (2, 1));
+        assert_eq!(values.values[0], Value::complex(1.24, -2.24).unwrap());
+        assert_eq!(values.values[1].number, -8.74);
+        for (number, places, expected) in [
+            (125., -1., 130.),
+            (-125., -1., -130.),
+            (1.005, 2., 1.),
+            (2.675, 2., 2.68),
+            (0.15, 1., 0.2),
+            (1.236, 2. + 1e-11, 1.24),
+            (1.234, 0., 1.),
+            (1.234, 10_000., 1.234),
+            (1.234, -10_000., 0.),
+            (1e308, -308., 0.),
+        ] {
+            assert_eq!(
+                round(vec![literal(number), literal(places)])
+                    .unwrap()
+                    .scalar()
+                    .unwrap()
+                    .number,
+                expected
+            );
+        }
+        assert_eq!(
+            round(vec![literal(-2.5)]).unwrap().scalar().unwrap().number,
+            -3.
+        );
+        assert!(round(vec![literal(1.234), literal(0.1)]).is_err());
+        assert!(round(vec![literal(1.234), literal(2. + 1e-10)]).is_err());
+        let places = Expr::Matrix(2, 1, vec![literal(1.), literal(-1.)]);
+        let Datum::Matrix(values) = round(vec![literal(125.25), places]).unwrap() else {
+            panic!("ожидался вектор разрядностей");
+        };
+        assert_eq!(values.values[0].number, 125.3);
+        assert_eq!(values.values[1].number, 130.);
+        assert!(round(vec![
+            Expr::Literal(Value::constant("m").unwrap()),
+            literal(1.)
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn arithmetic_mean_combines_scalars_matrices_and_complex_values_with_units() {
+        let meter = Value::constant("m").unwrap();
+        let centimeter = Value::constant("cm").unwrap();
+        let literal = |value: Value| Expr::Literal(value);
+        let measured = |number, imaginary, unit| {
+            literal(
+                Value::complex(number, imaginary)
+                    .unwrap()
+                    .binary("mult", unit)
+                    .unwrap(),
+            )
+        };
+        let mean = |args| Expr::Builtin("mean".into(), args).eval(&[]);
+        let matrix = Expr::Matrix(
+            1,
+            2,
+            vec![measured(100., 200., centimeter), measured(3., 4., meter)],
+        );
+        let actual = mean(vec![matrix, measured(5., 6., meter)])
+            .unwrap()
+            .scalar()
+            .unwrap();
+        let expected = Value::complex(3., 4.)
+            .unwrap()
+            .binary("mult", meter)
+            .unwrap();
+        assert!(Datum::Scalar(actual).near(&Datum::Scalar(expected)));
+        let range = Expr::Range(vec![
+            measured(1., 0., Value::scalar(1.).unwrap()),
+            measured(5., 0., Value::scalar(1.).unwrap()),
+        ]);
+        assert_eq!(mean(vec![range]).unwrap().scalar().unwrap().number, 3.);
+        let seconds_zero = Value::constant("s").unwrap().with_number(0.).unwrap();
+        for args in [
+            vec![literal(seconds_zero), measured(2., 0., meter)],
+            vec![measured(2., 0., meter), literal(Value::scalar(0.).unwrap())],
+        ] {
+            assert_eq!(mean(args).unwrap().scalar().unwrap(), meter);
+        }
+        let meters_zero = meter.with_number(0.).unwrap();
+        let all_zero = mean(vec![literal(meters_zero), literal(seconds_zero)]).unwrap();
+        assert_eq!(all_zero.scalar().unwrap(), Value::scalar(0.).unwrap());
+        assert!(mean(vec![literal(meter), literal(Value::constant("s").unwrap())]).is_err());
+        assert!(mean(Vec::new()).is_err());
     }
 
     fn builtin_eval(op: &str, args: Vec<Expr>) -> f64 {
