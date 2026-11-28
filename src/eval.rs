@@ -2454,50 +2454,32 @@ fn builtin(op: &str, args: &[Datum], ctx: &Context<'_>) -> Calc<Datum> {
             let rk = crate::engineering::matrix_rank(m.rows, m.cols, &nums);
             Ok(Value::scalar(rk as f64)?.into())
         }
-        ("fft" | "cfft", [Datum::Matrix(v)]) => {
-            if v.rows != 1 && v.cols != 1 {
-                return Err("fft требует вектор".into());
-            }
-            if v.values.iter().any(|x| !x.dimensionless()) {
-                return Err("fft требует безразмерные числа".into());
+        (
+            "fft" | "FFT" | "ifft" | "IFFT" | "cfft" | "CFFT" | "icfft" | "ICFFT",
+            [Datum::Matrix(v)],
+        ) => {
+            let mut nonzero = v
+                .values
+                .iter()
+                .filter(|value| value.number != 0. || value.imaginary != 0.);
+            let unit = nonzero
+                .next()
+                .map_or_else(|| Value::scalar(1.), |value| value.with_number(1.))?;
+            if nonzero.any(|value| !value.compatible(unit)) {
+                return Err(format!("{op} требует элементы одной размерности"));
             }
             let input: Vec<Complex64> = v
                 .values
                 .iter()
                 .map(|x| Complex64::new(x.number, x.imaginary))
                 .collect();
-            let out = crate::engineering::fft_complex(&input, false)?;
+            let (rows, cols, out) = crate::engineering::worksheet_fft(op, &input, v.rows, v.cols)?;
             let vals = out
                 .into_iter()
-                .map(|z| Value::complex(z.re, z.im))
+                .map(|z| Value::complex(z.re, z.im)?.binary("mult", unit))
                 .collect::<Calc<Vec<_>>>()?;
             Ok(Datum::Matrix(Arc::new(Matrix::from_values(
-                vals.len(),
-                1,
-                vals,
-            )?)))
-        }
-        ("ifft" | "icfft", [Datum::Matrix(v)]) => {
-            if v.rows != 1 && v.cols != 1 {
-                return Err("ifft требует вектор".into());
-            }
-            if v.values.iter().any(|x| !x.dimensionless()) {
-                return Err("ifft требует безразмерные числа".into());
-            }
-            let input: Vec<Complex64> = v
-                .values
-                .iter()
-                .map(|x| Complex64::new(x.number, x.imaginary))
-                .collect();
-            let out = crate::engineering::fft_complex(&input, true)?;
-            let vals = out
-                .into_iter()
-                .map(|z| Value::complex(z.re, z.im))
-                .collect::<Calc<Vec<_>>>()?;
-            Ok(Datum::Matrix(Arc::new(Matrix::from_values(
-                vals.len(),
-                1,
-                vals,
+                rows, cols, vals,
             )?)))
         }
         ("cspline", [Datum::Matrix(vx), Datum::Matrix(vy)]) => {
@@ -3218,6 +3200,31 @@ mod tests {
         assert_eq!(all_zero.scalar().unwrap(), Value::scalar(0.).unwrap());
         assert!(mean(vec![literal(meter), literal(Value::constant("s").unwrap())]).is_err());
         assert!(mean(Vec::new()).is_err());
+    }
+
+    #[test]
+    fn fourier_functions_propagate_units_and_keep_exact_case() {
+        let meter = Value::constant("m").unwrap();
+        let second = Value::constant("s").unwrap();
+        let signal = |last| {
+            let mut values: Vec<_> = (0..7).map(|_| Expr::Literal(meter)).collect();
+            values.push(Expr::Literal(last));
+            Expr::Matrix(8, 1, values)
+        };
+        let transform = |name: &str, signal| Expr::Builtin(name.into(), vec![signal]).eval(&[]);
+        let Datum::Matrix(output) = transform("FFT", signal(meter)).unwrap() else {
+            panic!("ожидался вектор спектра");
+        };
+        assert_eq!((output.rows, output.cols), (5, 1));
+        assert_eq!(output.values[0], meter);
+        assert!(output.values.iter().all(|value| value.compatible(meter)));
+        let zero_seconds = second.with_number(0.).unwrap();
+        let Datum::Matrix(output) = transform("FFT", signal(zero_seconds)).unwrap() else {
+            panic!("ожидался вектор спектра");
+        };
+        assert_eq!(output.values[0], meter.with_number(0.875).unwrap());
+        assert!(transform("Fft", signal(meter)).is_err());
+        assert!(transform("cfft", signal(second)).is_err());
     }
 
     fn builtin_eval(op: &str, args: Vec<Expr>) -> f64 {

@@ -1,12 +1,12 @@
 [package]
 name = "list-rs"
-version = "0.6.16"
+version = "0.6.17"
 edition = "2021"
 default-run = "list-rs"
 
 [features]
 default = []
-mcp = ["roxmltree/positions"]
+mcp = []
 desktop = ["dep:eframe", "dep:rfd", "mcp"]
 
 [[bin]]
@@ -20,7 +20,7 @@ path = "src/mcp_bin.rs"
 required-features = ["mcp"]
 
 [dependencies]
-roxmltree = { version = "0.21.1", default-features = false, features = ["std"] }
+roxmltree = { version = "0.21.1", default-features = false, features = ["std", "positions"] }
 num-complex = "0.4.6"
 flate2 = "1.1"
 eframe = { version = "0.33", optional = true, default-features = false, features = ["default_fonts", "glow", "accesskit"] }

@@ -93,14 +93,29 @@ pub fn qnorm(p: f64, mu: f64, sigma: f64) -> Calc<f64> {
     Ok(mu + sigma * z)
 }
 
-/// Cooley-Tukey radix-2 FFT (power-of-two) or direct DFT for general N <= 4096.
+/// A DFT with the negative forward exponent and normalization on the inverse.
 pub fn fft_complex(input: &[Complex64], inverse: bool) -> Calc<Vec<Complex64>> {
-    let n = input.len();
-    if n == 0 || n > 4096 {
-        return Err("fft/ifft поддерживает векторы длиной от 1 до 4096".into());
+    let mut out = dft(input, inverse)?;
+    if inverse {
+        let scale = (input.len() as f64).recip();
+        out.iter_mut().for_each(|bin| *bin *= scale);
     }
-    let sign = if inverse { 1.0 } else { -1.0 };
-    let mut out = if n.is_power_of_two() {
+    Ok(out)
+}
+
+/// Cooley-Tukey radix-2 FFT, or a bounded direct DFT for other lengths.
+fn dft(input: &[Complex64], positive_sign: bool) -> Calc<Vec<Complex64>> {
+    let n = input.len();
+    if n == 0 {
+        return Err("преобразование Фурье требует непустой массив".into());
+    }
+    if !n.is_power_of_two() && n > 4096 {
+        return Err(
+            "преобразование Фурье: длина оси, не равная степени двойки, ограничена 4096".into(),
+        );
+    }
+    let sign = if positive_sign { 1.0 } else { -1.0 };
+    let out = if n.is_power_of_two() {
         let mut a = input.to_vec();
         // Bit-reversal permutation
         let mut j = 0usize;
@@ -139,28 +154,117 @@ pub fn fft_complex(input: &[Complex64], inverse: bool) -> Calc<Vec<Complex64>> {
         for (k, slot) in a.iter_mut().enumerate() {
             let mut acc = Complex64::new(0.0, 0.0);
             for (m, &x) in input.iter().enumerate() {
-                let ang = sign * 2.0 * PI * (k * m) as f64 / (n as f64);
-                acc += x * Complex64::new(ang.cos(), ang.sin());
+                let ang = sign * 2.0 * PI * ((k * m) % n) as f64 / n as f64;
+                acc += x * Complex64::from_polar(1., ang);
             }
             *slot = acc;
         }
         a
     };
-    if inverse {
-        let inv_n = 1.0 / (n as f64);
-        for z in &mut out {
-            *z *= inv_n;
-        }
+    Ok(out)
+}
+
+fn dft_matrix(
+    input: &[Complex64],
+    rows: usize,
+    cols: usize,
+    positive_sign: bool,
+) -> Calc<Vec<Complex64>> {
+    if rows == 1 || cols == 1 {
+        return dft(input, positive_sign);
     }
-    for z in &mut out {
-        if z.im.abs() < 1e-12 * z.re.abs().max(1.0) {
-            z.im = 0.0;
+    let mut out = Vec::with_capacity(input.len());
+    for row in input.chunks_exact(cols) {
+        out.extend(dft(row, positive_sign)?);
+    }
+    let mut column = Vec::with_capacity(rows);
+    for col in 0..cols {
+        column.extend(out[col..].iter().step_by(cols).copied());
+        for (value, bin) in out[col..]
+            .iter_mut()
+            .step_by(cols)
+            .zip(dft(&column, positive_sign)?)
+        {
+            *value = bin;
         }
-        if z.re.abs() < 1e-12 * z.im.abs().max(1.0) {
-            z.re = 0.0;
-        }
+        column.clear();
     }
     Ok(out)
+}
+
+pub(crate) fn worksheet_fft(
+    name: &str,
+    input: &[Complex64],
+    rows: usize,
+    cols: usize,
+) -> Calc<(usize, usize, Vec<Complex64>)> {
+    if input.is_empty() || rows.checked_mul(cols) != Some(input.len()) {
+        return Err(format!("{name} требует непустой числовой массив"));
+    }
+    let real = matches!(name, "fft" | "FFT" | "ifft" | "IFFT");
+    let inverse = matches!(name, "ifft" | "IFFT" | "icfft" | "ICFFT");
+    let uppercase = matches!(name, "FFT" | "IFFT" | "CFFT" | "ICFFT");
+    let positive_sign = inverse == uppercase;
+    let (output_rows, output_cols, size, mut output) = if real {
+        if cols != 1 {
+            return Err(format!("{name} требует вектор-столбец"));
+        }
+        if inverse {
+            let intervals = rows - 1;
+            if intervals < 4 || !intervals.is_power_of_two() {
+                return Err(format!(
+                    "{name}: длина спектра должна быть 1 + 2^k (k >= 2)"
+                ));
+            }
+            let size = intervals * 2;
+            if size > crate::eval::MAX_CELLS {
+                return Err(format!(
+                    "{name}: результат превышает допустимый размер массива"
+                ));
+            }
+            let mut spectrum = Vec::with_capacity(size);
+            spectrum.extend_from_slice(input);
+            // Both real inverse variants ignore imaginary DC and Nyquist components.
+            spectrum[0].im = 0.;
+            spectrum[intervals].im = 0.;
+            spectrum.extend(input[1..intervals].iter().rev().map(Complex64::conj));
+            (size, 1, size, dft(&spectrum, positive_sign)?)
+        } else {
+            if rows < 8 || !rows.is_power_of_two() {
+                return Err(format!(
+                    "{name}: длина вектора должна быть степенью двойки и не меньше 8"
+                ));
+            }
+            if input.iter().any(|value| value.im != 0.) {
+                return Err(format!("{name} требует действительные значения"));
+            }
+            (1 + rows / 2, 1, rows, dft(input, positive_sign)?)
+        }
+    } else {
+        (
+            rows,
+            cols,
+            input.len(),
+            dft_matrix(input, rows, cols, positive_sign)?,
+        )
+    };
+    let scale = match (uppercase, inverse) {
+        (false, _) => (size as f64).sqrt().recip(),
+        (true, false) => (size as f64).recip(),
+        (true, true) => 1.,
+    };
+    output.truncate(output_rows * output_cols);
+    for bin in &mut output {
+        *bin *= scale;
+        if real && inverse {
+            bin.im = 0.;
+        }
+    }
+    if real && !inverse {
+        output[0].im = 0.;
+        output[output_rows - 1].im = 0.;
+    }
+    Ok((output_rows, output_cols, output))
 }
 
 /// Householder QR decomposition for m x n real matrix (m >= n). Returns (Q (m x m), R (m x n)).
@@ -673,5 +777,64 @@ mod tests {
         assert!((pnorm(0.0, 0.0, 1.0).unwrap() - 0.5).abs() < 1e-6);
         assert!((qnorm(0.975, 0.0, 1.0).unwrap() - 1.959964).abs() < 1e-5);
         assert!((dnorm(0.0, 0.0, 1.0).unwrap() - 0.39894228).abs() < 1e-6);
+    }
+
+    #[test]
+    fn worksheet_real_fft_has_half_spectrum_and_case_sensitive_sign_and_scale() {
+        let mut signal = vec![Complex64::default(); 8];
+        signal[1].re = 1.;
+        for (forward, inverse, expected_dc, expected_bin) in [
+            ("fft", "ifft", 1. / 8_f64.sqrt(), Complex64::new(0.25, 0.25)),
+            (
+                "FFT",
+                "IFFT",
+                1. / 8.,
+                Complex64::new(1., -1.) / (8. * 2_f64.sqrt()),
+            ),
+        ] {
+            let (rows, cols, mut spectrum) = worksheet_fft(forward, &signal, 8, 1).unwrap();
+            assert_eq!((rows, cols), (5, 1));
+            assert!((spectrum[0] - expected_dc).norm() < 1e-14);
+            assert!((spectrum[1] - expected_bin).norm() < 1e-14);
+            spectrum[0].im = 17.;
+            spectrum[4].im = -33.;
+            let (rows, cols, restored) = worksheet_fft(inverse, &spectrum, 5, 1).unwrap();
+            assert_eq!((rows, cols), (8, 1));
+            for (result, target) in restored.iter().zip(&signal) {
+                assert_eq!(result.im, 0.);
+                assert!((result - target).norm() < 1e-14);
+            }
+        }
+        assert!(worksheet_fft("fft", &signal[..4], 4, 1).is_err());
+        assert!(worksheet_fft("fft", &signal, 1, 8).is_err());
+        assert!(worksheet_fft("IFFT", &signal[..6], 6, 1).is_err());
+        signal[1].im = 1.;
+        assert!(worksheet_fft("FFT", &signal, 8, 1).is_err());
+    }
+
+    #[test]
+    fn worksheet_complex_fft_preserves_rectangular_shape_and_normalizes_by_all_cells() {
+        let value = Complex64::new(2., 3.);
+        let mut matrix = vec![Complex64::default(); 6];
+        matrix[4] = value;
+        for (forward, inverse, scale, sign) in [
+            ("cfft", "icfft", 1. / 6_f64.sqrt(), 1.),
+            ("CFFT", "ICFFT", 1. / 6., -1.),
+        ] {
+            let (rows, cols, spectrum) = worksheet_fft(forward, &matrix, 2, 3).unwrap();
+            assert_eq!((rows, cols), (2, 3));
+            let expected_bin = value * Complex64::from_polar(scale, sign * 5. * PI / 3.);
+            assert!((spectrum[4] - expected_bin).norm() < 1e-14);
+            assert!((spectrum[0] - value * scale).norm() < 1e-14);
+            let (_, _, restored) = worksheet_fft(inverse, &spectrum, rows, cols).unwrap();
+            for (result, target) in restored.iter().zip(&matrix) {
+                assert!((result - target).norm() < 1e-14);
+            }
+        }
+        let (rows, cols, spectrum) = worksheet_fft("cfft", &matrix, 1, 6).unwrap();
+        assert_eq!((rows, cols), (1, 6));
+        assert!((spectrum[0] - value / 6_f64.sqrt()).norm() < 1e-14);
+        let (_, _, spectrum) = worksheet_fft("CFFT", &[value], 1, 1).unwrap();
+        assert_eq!(&spectrum, &[value]);
     }
 }

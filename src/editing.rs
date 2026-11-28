@@ -1,4 +1,6 @@
-use crate::parse::{elements, eval_operand, identifier, kind, named, Xml, ML};
+use crate::parse::{
+    elements, eval_operand, identifier, kind, matrix_cells, named, Xml, COLUMN_MAJOR_MATRIX, ML,
+};
 use crate::value::Calc;
 use roxmltree::{Document, ParsingOptions};
 use std::io::Write;
@@ -7,6 +9,14 @@ use std::path::Path;
 
 const WS: &str = "http://schemas.mathsoft.com/worksheet30";
 const MAX_FORMULA_BYTES: usize = 16_384;
+
+fn matrix_order_comment() -> String {
+    format!("<!--{COLUMN_MAJOR_MATRIX}-->")
+}
+
+fn column_major_indices(rows: usize, cols: usize) -> impl Iterator<Item = usize> {
+    (0..cols).flat_map(move |column| (0..rows).map(move |row| row * cols + column))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Token<'a> {
@@ -434,11 +444,10 @@ impl Expression {
             ),
             Self::Span(args) => span_xml(args)?,
             Self::Matrix(rows, cols, entries) => {
-                let body = entries
-                    .iter()
-                    .map(Self::xml)
-                    .collect::<Calc<Vec<_>>>()?
-                    .join("");
+                let mut body = matrix_order_comment();
+                for cell in column_major_indices(*rows, *cols) {
+                    body.push_str(&entries[cell].xml()?);
+                }
                 format!("<ml:matrix rows=\"{rows}\" cols=\"{cols}\">{body}</ml:matrix>")
             }
             Self::LocalAssign(name, rhs) => tag("localDefine", &(id(name) + &rhs.stmt_xml()?)),
@@ -745,7 +754,8 @@ fn print_formula(node: Xml<'_, '_>, level: usize) -> Calc<String> {
         ("return", [val]) => format!("return({})", print(*val)?),
         ("break", _) => "break()".into(),
         ("continue", _) => "continue()".into(),
-        ("matrix", entries) => {
+        ("matrix", _) => {
+            let entries = matrix_cells(node)?;
             let cols = node
                 .attribute("cols")
                 .and_then(|c| c.parse::<usize>().ok())
@@ -2872,6 +2882,47 @@ pub struct ClipboardRegion {
     text_style: Option<(String, String)>,
 }
 
+fn portable_matrix_xml(xml: &str, node: Xml<'_, '_>) -> Calc<String> {
+    let range = node.range();
+    let markup = &xml[range.clone()];
+    let relative = |child: Xml<'_, '_>| {
+        let child = child.range();
+        child.start - range.start..child.end - range.start
+    };
+    let mut changes = Vec::new();
+    if named(node, ML, "matrix") {
+        let Ok(cells) = matrix_cells(node) else {
+            return Ok(markup.to_owned());
+        };
+        let cols = node
+            .attribute("cols")
+            .and_then(|value| value.parse::<usize>().ok())
+            .ok_or("неверная матрица")?;
+        if !node
+            .children()
+            .any(|child| child.is_comment() && child.text() == Some(COLUMN_MAJOR_MATRIX))
+        {
+            let at = find_open_tag_end(markup).ok_or("неверный тег матрицы")?;
+            changes.push((at..at, matrix_order_comment()));
+        }
+        for (slot, cell) in elements(node).zip(column_major_indices(cells.len() / cols, cols)) {
+            changes.push((relative(slot), portable_matrix_xml(xml, cells[cell])?));
+        }
+    } else {
+        for matrix in node.descendants().skip(1).filter(|&child| {
+            named(child, ML, "matrix")
+                && !child
+                    .ancestors()
+                    .skip(1)
+                    .take_while(|&ancestor| ancestor != node)
+                    .any(|ancestor| named(ancestor, ML, "matrix"))
+        }) {
+            changes.push((relative(matrix), portable_matrix_xml(xml, matrix)?));
+        }
+    }
+    patch(markup, changes)
+}
+
 pub fn copy_regions(xml: &str, ids: &[String]) -> Calc<Vec<ClipboardRegion>> {
     if ids.is_empty() {
         return Ok(Vec::new());
@@ -2908,7 +2959,7 @@ pub fn copy_regions(xml: &str, ids: &[String]) -> Calc<Vec<ClipboardRegion>> {
             Some((name.to_owned(), xml[definition.range()].to_owned()))
         });
         raw.push(ClipboardRegion {
-            xml: xml[node.range()].to_owned(),
+            xml: portable_matrix_xml(xml, node)?,
             rel_left: left,
             rel_top: top,
             old_left: left,
@@ -3473,6 +3524,58 @@ pub fn set_page_settings(xml: &str, settings: &PageSettings) -> Calc<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matrix_formula_writes_native_order_and_roundtrips_through_the_editor() {
+        let blank = include_str!("../examples/blank.xmcd");
+        let (xml, _) = insert_region(
+            blank,
+            12.,
+            20.,
+            NewRegion::Formula("A := [1, 2, 3; 4, 5, 6]"),
+        )
+        .unwrap();
+        let doc = document(&xml).unwrap();
+        let matrix = doc
+            .descendants()
+            .find(|&node| named(node, ML, "matrix"))
+            .unwrap();
+        let cells: Vec<_> = elements(matrix).map(|n| n.text().unwrap()).collect();
+        assert_eq!(cells, ["1", "4", "2", "5", "3", "6"]);
+        assert!(xml.contains(COLUMN_MAJOR_MATRIX));
+        let formula = FormulaSource::from_statement(matrix.parent().unwrap(), false).unwrap();
+        assert_eq!(formula.source.as_deref(), Some("A := [1, 2, 3; 4, 5, 6]"));
+        let mut sheet = crate::sheet::Sheet::import(&xml).unwrap();
+        sheet.full();
+        assert_eq!(sheet.display(0).unwrap(), "2×3 [1, 2, 3; 4, 5, 6]");
+    }
+
+    #[test]
+    fn matrix_clipboard_preserves_layout_between_legacy_and_native_documents() {
+        let blank = include_str!("../examples/blank.xmcd");
+        let source = blank.replace(
+            "<regions/>",
+            r#"<regions><region region-id="1" left="12" top="20"><math><ml:eval><ml:apply><ml:id>cfft</ml:id><ml:matrix rows="2" cols="3"><ml:real>1</ml:real><ml:real>2</ml:real><ml:real>3</ml:real><ml:real>4</ml:real><ml:real>5</ml:real><ml:real>6</ml:real></ml:matrix></ml:apply></ml:eval></math></region></regions>"#,
+        );
+        assert_ne!(source, blank);
+        let native = blank.replace("List-rs", "Mathcad Professional 14.1");
+        let copied = copy_regions(&source, &["1".into()]).unwrap();
+        let (destination, _) = paste_regions(&native, &copied, 24., 48.).unwrap();
+        assert!(destination.contains(COLUMN_MAJOR_MATRIX));
+        let mut original = crate::sheet::Sheet::import(&source).unwrap();
+        original.full();
+        let mut pasted = crate::sheet::Sheet::import(&destination).unwrap();
+        pasted.full();
+        assert_eq!(original.display(0).unwrap(), pasted.display(0).unwrap());
+        let copied_again = copy_regions(&destination, &["1".into()]).unwrap();
+        let (destination, _) = paste_regions(blank, &copied_again, 36., 36.).unwrap();
+        let mut pasted_again = crate::sheet::Sheet::import(&destination).unwrap();
+        pasted_again.full();
+        assert_eq!(
+            original.display(0).unwrap(),
+            pasted_again.display(0).unwrap()
+        );
+    }
 
     #[test]
     fn general_axis_format_uses_the_configured_cutoff_and_precision() {

@@ -6,6 +6,8 @@ use roxmltree::Node;
 use std::{collections::HashMap, sync::Arc};
 
 pub const ML: &str = "http://schemas.mathsoft.com/math30";
+pub(crate) const COLUMN_MAJOR_MATRIX: &str = "list-rs:column-major";
+const WORKSHEET: &str = "http://schemas.mathsoft.com/worksheet30";
 pub type Xml<'a, 'input> = Node<'a, 'input>;
 
 pub fn named(node: Xml<'_, '_>, ns: &str, name: &str) -> bool {
@@ -50,19 +52,20 @@ fn scalar(node: Xml<'_, '_>) -> Calc<Value> {
         "real" => Value::scalar(real(node)?),
         "imag" => Value::complex(0., real(node)?),
         "complex" => {
-            let mut items = elements(node);
-            let re = items
-                .next()
-                .filter(|&n| named(n, ML, "real"))
-                .ok_or("требуется действительная часть")?;
-            let im = items
-                .next()
-                .filter(|&n| named(n, ML, "imag"))
-                .ok_or("требуется мнимая часть")?;
+            let mut items = elements(node).peekable();
+            let mut part = |name| {
+                if items.peek().is_some_and(|&n| named(n, ML, name)) {
+                    real(items.next().unwrap())
+                } else {
+                    Ok(0.)
+                }
+            };
+            let re = part("real")?;
+            let im = part("imag")?;
             if items.next().is_some() {
                 return Err("лишние поля комплексного числа".into());
             }
-            Value::complex(real(re)?, real(im)?)
+            Value::complex(re, im)
         }
         _ => Err("ожидается число".into()),
     }
@@ -80,6 +83,105 @@ fn dimensions(node: Xml<'_, '_>) -> Calc<(usize, usize)> {
         return Err("слишком большой массив".into());
     }
     Ok((rows, cols))
+}
+
+fn matrix_is_column_major(node: Xml<'_, '_>) -> bool {
+    if node
+        .children()
+        .any(|child| child.is_comment() && child.text() == Some(COLUMN_MAJOR_MATRIX))
+    {
+        return true;
+    }
+    let document = node.document();
+    let native = elements(document.root_element())
+        .find(|&child| named(child, WORKSHEET, "metadata"))
+        .and_then(|metadata| elements(metadata).find(|&child| named(child, WORKSHEET, "generator")))
+        .and_then(|generator| generator.text())
+        .is_some_and(|generator| generator.trim_start().starts_with("Mathcad"));
+    if !native {
+        return false;
+    }
+    // Before 0.6.17 List serialized its own matrix literals by rows, including
+    // formulas added to native sheets. Its compact outer tags identify those edits.
+    if node
+        .ancestors()
+        .any(|ancestor| named(ancestor, ML, "result"))
+    {
+        return true;
+    }
+    let source = document.input_text();
+    let legacy_formula = node
+        .ancestors()
+        .find(|ancestor| {
+            ancestor
+                .parent()
+                .is_some_and(|parent| named(parent, WORKSHEET, "math"))
+        })
+        .is_some_and(|statement| {
+            statement.attributes().len() == 0
+                && source[statement.range()]
+                    .starts_with(&format!("<ml:{} xmlns:ml=\"{ML}\"", kind(statement)))
+        });
+    let legacy_region = node
+        .ancestors()
+        .find(|&ancestor| named(ancestor, WORKSHEET, "region"))
+        .is_some_and(|region| {
+            region.attribute("align-x").is_none()
+                && source[region.range()]
+                    .starts_with(&format!("<region xmlns=\"{WORKSHEET}\" region-id="))
+        });
+    !(legacy_formula || legacy_region)
+}
+
+pub(crate) fn matrix_cells<'a, 'i>(node: Xml<'a, 'i>) -> Calc<Vec<Xml<'a, 'i>>> {
+    let (rows, cols) = dimensions(node)?;
+    let entries: Vec<_> = elements(node).collect();
+    if entries.len() != rows * cols {
+        return Err("неверное число ячеек массива".into());
+    }
+    if rows == 1 || cols == 1 || !matrix_is_column_major(node) {
+        return Ok(entries);
+    }
+    Ok((0..rows * cols)
+        .map(|i| entries[i % cols * rows + i / cols])
+        .collect())
+}
+
+#[cfg(test)]
+mod matrix_xml_tests {
+    use super::*;
+
+    #[test]
+    fn native_and_legacy_matrix_order_can_coexist() {
+        let xml = format!(
+            r#"<worksheet xmlns="{WORKSHEET}" xmlns:ml="{ML}">
+              <metadata><generator>Mathcad Professional 14.1</generator></metadata>
+              <regions>
+                <region><math><ml:eval placeholderMultiplicationStyle="default" xmlns:ml="{ML}">
+                  <ml:matrix rows="2" cols="2"><ml:real>1</ml:real><ml:real>3</ml:real><ml:real>2</ml:real><ml:real>4</ml:real></ml:matrix>
+                </ml:eval></math></region>
+                <region><math><ml:eval xmlns:ml="{ML}">
+                  <ml:matrix rows="2" cols="2"><ml:real>1</ml:real><ml:real>2</ml:real><ml:real>3</ml:real><ml:real>4</ml:real></ml:matrix>
+                  <ml:matrix rows="2" cols="2"><!--{COLUMN_MAJOR_MATRIX}--><ml:real>1</ml:real><ml:real>3</ml:real><ml:real>2</ml:real><ml:real>4</ml:real></ml:matrix>
+                </ml:eval></math></region>
+              </regions>
+            </worksheet>"#
+        );
+        let document = roxmltree::Document::parse(&xml).unwrap();
+        for matrix in document
+            .descendants()
+            .filter(|&node| named(node, ML, "matrix"))
+        {
+            assert_eq!(
+                matrix_cells(matrix)
+                    .unwrap()
+                    .into_iter()
+                    .map(|cell| real(cell).unwrap())
+                    .collect::<Vec<_>>(),
+                [1., 2., 3., 4.]
+            );
+        }
+    }
 }
 
 fn expand_sequence<'a, 'i>(nodes: impl Iterator<Item = Xml<'a, 'i>>) -> Vec<Xml<'a, 'i>> {
@@ -149,7 +251,10 @@ pub fn snapshot(eval: Xml<'_, '_>) -> Option<Calc<Datum>> {
                 Matrix::from_values(
                     r,
                     c,
-                    elements(node).map(snapshot_scalar).collect::<Calc<_>>()?,
+                    matrix_cells(node)?
+                        .into_iter()
+                        .map(snapshot_scalar)
+                        .collect::<Calc<_>>()?,
                 )
             })
             .map(|matrix| Datum::Matrix(Arc::new(matrix)))
@@ -584,7 +689,8 @@ impl Compiler<'_> {
             }
             "matrix" => {
                 let (rows, cols) = dimensions(node)?;
-                let values = elements(node)
+                let values = matrix_cells(node)?
+                    .into_iter()
                     .map(|n| self.compile(n, params, locals, depth + 1))
                     .collect::<Calc<_>>()?;
                 Ok(Expr::Matrix(rows, cols, values))

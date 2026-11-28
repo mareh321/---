@@ -11,7 +11,8 @@ $names = @(
     'Complex_numbers_variant_24_arctg_arcctg.xmcd',
     'mathcad15-calculus.xmcd',
     'mathcad15-atan2-statistics.xmcd',
-    'mathcad15-log-round-mean.xmcd'
+    'mathcad15-log-round-mean.xmcd',
+    'mathcad15-fft.xmcd'
 )
 
 foreach ($name in $names) {
